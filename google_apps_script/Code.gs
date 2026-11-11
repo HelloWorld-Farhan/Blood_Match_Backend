@@ -41,7 +41,7 @@ function testEmailWebhook() {
       contents: JSON.stringify({
         action: "otp_verification",
         to: recipient,
-        name: "Dr. Farhan Khalid",
+        name: "Farhan Khalid",
         otp_code: "839201"
       })
     }

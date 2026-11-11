@@ -33,9 +33,15 @@ class UserModel(Base):
     # Cloudflare R2 Universal Avatar Profile Picture
     photo_url = Column(String(1024), nullable=True)
 
+    @property
+    def member_id(self) -> str:
+        clean = (self.id or "9481NX01").replace("-", "").upper()
+        return f"BM-{clean[:4]}-{clean[4:8]}"
+
     def to_dict(self):
         return {
             "id": self.id,
+            "member_id": self.member_id,
             "full_name": self.full_name,
             "email": self.email,
             "phone": self.phone,
@@ -238,9 +244,15 @@ class ClinicianProfileModel(Base):
     avatar_url = Column(String(255), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    @property
+    def member_id(self) -> str:
+        clean = (self.id or "9481NX01").replace("-", "").upper()
+        return f"BM-{clean[:4]}-{clean[4:8]}"
+
     def to_dict(self):
         return {
             "id": self.id,
+            "member_id": self.member_id,
             "full_name": self.full_name,
             "work_email": self.work_email,
             "phone": self.phone,

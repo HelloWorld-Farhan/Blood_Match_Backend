@@ -517,6 +517,13 @@ def register_user(
         otp_code=otp_code
     )
 
+    # 6. Initialize Cloudflare R2 user folder structure: users/{email}/
+    try:
+        from storage_service import initialize_user_storage
+        initialize_user_storage(email_clean, new_user.full_name)
+    except Exception as exc:
+        logger.warning(f"Could not initialize R2 storage for {email_clean}: {exc}")
+
     return {
         "message": "User registered successfully. A 6-digit verification code has been dispatched to your email.",
         "verification_required": True,

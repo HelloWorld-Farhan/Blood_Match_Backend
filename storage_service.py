@@ -54,28 +54,51 @@ def get_r2_client():
 
 def sanitize_user_email(email: str) -> str:
     """
-    Sanitizes user email into a safe POSIX/S3 directory segment.
-    e.g. dr.jenkins+test@bloodmatch.io -> dr_jenkins_test_bloodmatch_io
+    Sanitizes user email into a safe POSIX/S3 directory segment while preserving the email format:
+    e.g. farhankhalid17968@gmail.com -> farhankhalid17968@gmail.com
     """
     if not email:
         return "anonymous_user"
     cleaned = email.strip().lower()
-    # Replace @, +, dots, and special characters with underscores
-    sanitized = re.sub(r'[^a-z0-9_-]', '_', cleaned)
-    # Deduplicate consecutive underscores
-    sanitized = re.sub(r'_+', '_', sanitized).strip('_')
+    # Retain alphanumeric, @, dot, dash, and underscore
+    sanitized = re.sub(r'[^a-z0-9@._-]', '_', cleaned)
     return sanitized or "user"
 
 def build_scoped_path(email: str, category: str, filename: str) -> str:
     """
     Constructs deterministic isolated tenant key:
-    users/{sanitized_user_email}/{category}/{timestamp}_{clean_filename}
+    users/{user_email}/{category}/{filename}
     """
     sanitized_email = sanitize_user_email(email)
     clean_cat = re.sub(r'[^a-zA-Z0-9_\-]', '', category.strip().lower()) or "general"
     clean_filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', filename.strip())
-    timestamp = int(datetime.utcnow().timestamp())
-    return f"users/{sanitized_email}/{clean_cat}/{timestamp}_{clean_filename}"
+    return f"users/{sanitized_email}/{clean_cat}/{clean_filename}"
+
+def initialize_user_storage(email: str, full_name: str) -> bool:
+    """Initializes user directory structure in Cloudflare R2 upon account creation."""
+    client = get_r2_client()
+    if not client:
+        return True
+    try:
+        import json
+        user_key = f"users/{sanitize_user_email(email)}/profile.json"
+        body = json.dumps({
+            "email": email.strip().lower(),
+            "full_name": full_name.strip(),
+            "created_at": datetime.utcnow().isoformat(),
+            "status": "active"
+        }, indent=2).encode("utf-8")
+        client.put_object(
+            Bucket=R2_BUCKET_NAME,
+            Key=user_key,
+            Body=body,
+            ContentType="application/json"
+        )
+        logger.info(f"[R2 STORAGE INIT] Created isolated directory for {email} at {user_key}")
+        return True
+    except Exception as exc:
+        logger.warning(f"[R2 STORAGE INIT WARNING] Could not initialize R2 directory for {email}: {exc}")
+        return False
 
 # =========================================================================
 # REQUIREMENT 4: MULTI-TENANT ISOLATION & ACCESS PROTECTION
