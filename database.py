@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import Generator
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from dotenv import load_dotenv
@@ -97,6 +97,19 @@ def init_db():
         logger.info(f"Running auto-schema migration on {'SQLite Fallback' if is_sqlite_fallback else 'PostgreSQL'}...")
         # Automatically creates tables from metadata
         Base.metadata.create_all(bind=engine)
+
+        # Requirement 3: Auto-detect and safely add any missing columns to existing tables
+        inspector = inspect(engine)
+        for table_name, table in Base.metadata.tables.items():
+            if inspector.has_table(table_name):
+                existing_cols = {col['name'] for col in inspector.get_columns(table_name)}
+                for col in table.columns:
+                    if col.name not in existing_cols:
+                        logger.info(f"Auto-migrating missing column: {table_name}.{col.name}")
+                        col_type = col.type.compile(engine.dialect)
+                        with engine.begin() as conn:
+                            conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}"))
+
         logger.info("Auto-schema migration completed successfully.")
 
         # Seed initial blood inventory if empty

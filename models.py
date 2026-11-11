@@ -18,6 +18,11 @@ class UserModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     verified_at = Column(DateTime, nullable=True)
 
+    # Brute-force protection & Lockout tracking
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    last_failed_login = Column(DateTime, nullable=True)
+    locked_until = Column(DateTime, nullable=True)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -26,7 +31,11 @@ class UserModel(Base):
             "phone": self.phone,
             "is_verified": self.is_verified,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "verified_at": self.verified_at.isoformat() if self.verified_at else None
+            "verified_at": self.verified_at.isoformat() if self.verified_at else None,
+            "failed_login_attempts": self.failed_login_attempts,
+            "last_failed_login": self.last_failed_login.isoformat() if self.last_failed_login else None,
+            "locked_until": self.locked_until.isoformat() if self.locked_until else None,
+            "is_locked": bool(self.locked_until and self.locked_until > datetime.utcnow())
         }
 
 class OtpTokenModel(Base):
@@ -36,6 +45,7 @@ class OtpTokenModel(Base):
     user_id = Column(String(36), index=True, nullable=False)
     email = Column(String(120), index=True, nullable=False)
     otp_code = Column(String(6), nullable=False)
+    token_type = Column(String(30), default="verification", nullable=False) # "verification" | "emergency_unlock"
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
     is_used = Column(Boolean, default=False, nullable=False)
@@ -46,6 +56,7 @@ class OtpTokenModel(Base):
             "id": self.id,
             "user_id": self.user_id,
             "email": self.email,
+            "token_type": self.token_type,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "is_used": self.is_used,

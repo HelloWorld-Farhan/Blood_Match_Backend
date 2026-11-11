@@ -23,6 +23,7 @@ from schemas import (
     OtpVerifyRequest,
     OtpResendRequest,
     UserLoginRequest,
+    AccountUnlockRequest,
     AuthTokenResponse,
     InventoryUpdateRequest,
     DonorCreateRequest,
@@ -36,11 +37,13 @@ from auth_service import (
     generate_cryptographic_otp,
     calculate_otp_expiry,
     calculate_cooldown_remaining,
+    calculate_login_cooldown_remaining,
+    calculate_lockout_duration,
     create_access_token,
     get_current_user,
     get_current_verified_user
 )
-from email_service import send_verification_email
+from email_service import send_verification_email, send_lockout_alert_email
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -56,8 +59,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="BloodMatch Backend Service",
-    description="Enterprise-grade clinical backend with PostgreSQL/SQLite resilience and authenticated verification lifecycle.",
-    version="1.1.0",
+    description="Enterprise-grade clinical backend with PostgreSQL/SQLite resilience, brute-force defense, and authenticated verification lifecycle.",
+    version="1.2.0",
     lifespan=lifespan
 )
 
@@ -135,7 +138,8 @@ def register_user(
         email=email_clean,
         phone=payload.phone.strip() if payload.phone else None,
         hashed_password=hashed_pw,
-        is_verified=False
+        is_verified=False,
+        failed_login_attempts=0
     )
     db.add(new_user)
     db.flush()
@@ -146,6 +150,7 @@ def register_user(
         user_id=new_user.id,
         email=email_clean,
         otp_code=otp_code,
+        token_type="verification",
         expires_at=calculate_otp_expiry(),
         is_used=False,
         attempts=0
@@ -176,7 +181,7 @@ def verify_otp(
     - Checks token expiration (10-minute validity)
     - Validates code match
     - Marks is_verified = True and sets verified_at timestamp
-    - Invalidator token (is_used = True)
+    - Invalidates token (is_used = True)
     - Returns JWT access token upon successful activation
     """
     email_clean = payload.email.strip().lower()
@@ -202,7 +207,11 @@ def verify_otp(
     # Fetch latest active OTP record
     otp_record = (
         db.query(OtpTokenModel)
-        .filter(OtpTokenModel.email == email_clean, OtpTokenModel.is_used == False)
+        .filter(
+            OtpTokenModel.email == email_clean,
+            OtpTokenModel.token_type == "verification",
+            OtpTokenModel.is_used == False
+        )
         .order_by(OtpTokenModel.created_at.desc())
         .first()
     )
@@ -274,7 +283,7 @@ def resend_otp(
     # Strict 30-Second Cooldown Check
     last_otp = (
         db.query(OtpTokenModel)
-        .filter(OtpTokenModel.email == email_clean)
+        .filter(OtpTokenModel.email == email_clean, OtpTokenModel.token_type == "verification")
         .order_by(OtpTokenModel.created_at.desc())
         .first()
     )
@@ -290,6 +299,7 @@ def resend_otp(
     # Invalidate previous unused OTP tokens for this email
     db.query(OtpTokenModel).filter(
         OtpTokenModel.email == email_clean,
+        OtpTokenModel.token_type == "verification",
         OtpTokenModel.is_used == False
     ).update({"is_used": True})
 
@@ -299,6 +309,7 @@ def resend_otp(
         user_id=user.id,
         email=email_clean,
         otp_code=new_otp,
+        token_type="verification",
         expires_at=calculate_otp_expiry(),
         is_used=False,
         attempts=0
@@ -318,25 +329,190 @@ def resend_otp(
         "cooldown_seconds": 30
     }
 
+# ==========================================
+# SECURE LOGIN & BRUTE-FORCE LOCKOUT
+# ==========================================
+
 @app.post("/api/auth/login", tags=["Authentication"])
 def login_user(
     payload: UserLoginRequest,
     db: Session = Depends(get_db)
 ):
-    """Authenticates a user and issues a JWT token."""
+    """
+    Secure login with brute-force defense:
+    1. Checks if account is locked (locked_until > now) -> Returns HTTP 423
+    2. Enforces 5-second cooldown between password submissions -> Returns HTTP 429
+    3. Verifies credentials with bcrypt
+    4. On failed attempt:
+       - 1st & 2nd attempt: Returns HTTP 401 with remaining attempts warning
+       - 3rd attempt: Locks account for 1 year, resets counter, dispatches emergency 6-digit unlock code via email, returns HTTP 423
+    5. On success: Clears failed attempts & locked status, issues JWT token
+    """
     email_clean = payload.email.strip().lower()
     user = db.query(UserModel).filter(UserModel.email == email_clean).first()
-    if not user or not verify_password(payload.password, user.hashed_password):
+
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email address or password."
         )
 
-    token = create_access_token({"sub": user.id, "email": user.email})
+    # Requirement 2: Check if account is locked
+    now = datetime.utcnow()
+    if user.locked_until and user.locked_until > now:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="Account is locked due to multiple failed login attempts. Please submit your 6-digit emergency unlock code to unlock your account."
+        )
+
+    # Requirement 4: Rate Limiting Cooldown (5 seconds between submissions)
+    cooldown_remaining = calculate_login_cooldown_remaining(user.last_failed_login, cooldown_seconds=5)
+    if cooldown_remaining > 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Brute-force protection: Please wait {cooldown_remaining} seconds before submitting another password attempt."
+        )
+
+    # Verify Password with Bcrypt
+    if verify_password(payload.password, user.hashed_password):
+        # Successful login: reset failed counters and unlock
+        user.failed_login_attempts = 0
+        user.last_failed_login = None
+        user.locked_until = None
+        db.flush()
+
+        token = create_access_token({"sub": user.id, "email": user.email})
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "is_verified": user.is_verified,
+            "user": user.to_dict()
+        }
+
+    # Failed login: increment failed attempts & timestamp
+    user.failed_login_attempts += 1
+    user.last_failed_login = now
+
+    # Requirement 2: 3-Attempt Rule
+    if user.failed_login_attempts < 3:
+        remaining_attempts = 3 - user.failed_login_attempts
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid email address or password. Warning: {remaining_attempts} attempt{'s' if remaining_attempts > 1 else ''} remaining before account lockout."
+        )
+
+    # 3rd consecutive failed attempt: Trigger Immediate Lockout & Emergency Code Dispatch
+    user.locked_until = calculate_lockout_duration() # Locked for 1 year
+    user.failed_login_attempts = 0 # Counter reset
+
+    # Invalidate prior emergency unlock tokens for this user
+    db.query(OtpTokenModel).filter(
+        OtpTokenModel.email == email_clean,
+        OtpTokenModel.token_type == "emergency_unlock",
+        OtpTokenModel.is_used == False
+    ).update({"is_used": True})
+
+    # Requirement 3: Generate 6-digit emergency unlock code with 10-minute expiry
+    unlock_code = generate_cryptographic_otp()
+    unlock_record = OtpTokenModel(
+        user_id=user.id,
+        email=email_clean,
+        otp_code=unlock_code,
+        token_type="emergency_unlock",
+        expires_at=calculate_otp_expiry(),
+        is_used=False,
+        attempts=0
+    )
+    db.add(unlock_record)
+    db.commit()
+
+    # Dispatch urgent security alert email
+    send_lockout_alert_email(
+        recipient_email=user.email,
+        recipient_name=user.full_name,
+        unlock_code=unlock_code
+    )
+
+    raise HTTPException(
+        status_code=status.HTTP_423_LOCKED,
+        detail="Account locked due to 3 consecutive failed login attempts. An emergency 6-digit unlock code has been dispatched to your email (valid for 10 minutes)."
+    )
+
+@app.post("/api/auth/unlock-account", tags=["Authentication"])
+def unlock_account(
+    payload: AccountUnlockRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Emergency account unlock endpoint:
+    - Validates 6-digit emergency unlock code
+    - Checks 10-minute validity expiry
+    - Clears locked_until and resets failed login counters
+    """
+    email_clean = payload.email.strip().lower()
+    unlock_code_clean = payload.unlock_code.strip()
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account not found."
+        )
+
+    now = datetime.utcnow()
+    if not (user.locked_until and user.locked_until > now):
+        return {
+            "message": "Account is not locked. You may proceed directly to login.",
+            "is_locked": False
+        }
+
+    # Fetch active emergency unlock token
+    unlock_record = (
+        db.query(OtpTokenModel)
+        .filter(
+            OtpTokenModel.email == email_clean,
+            OtpTokenModel.token_type == "emergency_unlock",
+            OtpTokenModel.is_used == False
+        )
+        .order_by(OtpTokenModel.created_at.desc())
+        .first()
+    )
+
+    if not unlock_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active emergency unlock code found for this account."
+        )
+
+    # Check 10-minute expiry
+    if now > unlock_record.expires_at:
+        unlock_record.is_used = True
+        db.flush()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Emergency unlock code has expired (10-minute limit). Please submit another login attempt to generate a fresh security alert."
+        )
+
+    # Verify Code
+    if unlock_record.otp_code != unlock_code_clean:
+        unlock_record.attempts += 1
+        db.flush()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid emergency unlock code. Please check your emergency security alert email."
+        )
+
+    # Unlock account & clear lockout state
+    unlock_record.is_used = True
+    user.locked_until = None
+    user.failed_login_attempts = 0
+    user.last_failed_login = None
+    db.flush()
+
     return {
-        "access_token": token,
-        "token_type": "bearer",
-        "is_verified": user.is_verified,
+        "message": "Account successfully unlocked. Security lockout cleared.",
+        "is_locked": False,
         "user": user.to_dict()
     }
 

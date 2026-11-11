@@ -71,6 +71,22 @@ def calculate_cooldown_remaining(last_created_at: datetime) -> int:
         return int(30 - elapsed) + 1
     return 0
 
+def calculate_login_cooldown_remaining(last_failed_login: Optional[datetime], cooldown_seconds: int = 5) -> int:
+    """
+    Requirement 4: Enforce an incremental delay (5 seconds) between password submissions
+    to prevent high-frequency automated brute-force scripts.
+    """
+    if not last_failed_login:
+        return 0
+    elapsed = (datetime.utcnow() - last_failed_login).total_seconds()
+    if elapsed < float(cooldown_seconds):
+        return int(cooldown_seconds - elapsed) + 1
+    return 0
+
+def calculate_lockout_duration() -> datetime:
+    """Requirement 2: Lock account for 1 year upon 3 consecutive failed attempts."""
+    return datetime.utcnow() + timedelta(days=365)
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
@@ -129,3 +145,4 @@ def get_current_verified_user(
             detail="Account unverified. Please verify your 6-digit email OTP to activate full clinical access."
         )
     return current_user
+

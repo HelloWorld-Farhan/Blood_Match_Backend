@@ -52,6 +52,10 @@ class UserLoginRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)
     password: str = Field(..., min_length=1)
 
+class AccountUnlockRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+    unlock_code: str = Field(..., min_length=6, max_length=6)
+
 class AuthTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
