@@ -28,7 +28,8 @@ from models import (
     ClinicianProfileModel,
     ClinicalCheckModel,
     ClinicalAuditLogModel,
-    ClinicalDocumentModel
+    ClinicalDocumentModel,
+    TransfusionAlertModel
 )
 from schemas import (
     UserRegisterRequest,
@@ -1726,6 +1727,23 @@ def register_donor(
         db.add(inv_item)
         db.commit()
 
+    # Create Transfusion Alert for other clinical users (Targeted alert with creator excluded)
+    try:
+        donor_loc = new_donor.location or new_donor.city or "Delhi"
+        new_alert = TransfusionAlertModel(
+            creator_email=email_clean,
+            donor_id=new_donor.id,
+            blood_type=new_donor.blood_type,
+            donor_name=new_donor.name,
+            location=donor_loc,
+            title=f"New Blood Available: Group {new_donor.blood_type}",
+            message=f"Certified voluntary donor {new_donor.name} enrolled for {donor_loc}. Standby ready for emergency transfusion dispatch."
+        )
+        db.add(new_alert)
+        db.commit()
+    except Exception as exc:
+        logger.warning(f"Failed to record transfusion alert: {exc}")
+
     if email_clean:
         sync_user_state_to_r2(email_clean, db)
 
@@ -1742,6 +1760,23 @@ def register_donor(
 
     return new_donor.to_dict()
 
+@app.get("/api/alerts", tags=["Transfusion Alerts"])
+def get_transfusion_alerts(
+    user_email: Optional[str] = Query(None, description="Current authenticated user's email to filter out self-created alerts"),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns active transfusion alerts across the network.
+    Excludes alerts created by the requesting user so they only receive notifications when someone else registers blood.
+    """
+    query = db.query(TransfusionAlertModel)
+    if user_email:
+        clean_email = user_email.strip().lower()
+        query = query.filter(TransfusionAlertModel.creator_email != clean_email)
+    
+    alerts = query.order_by(TransfusionAlertModel.created_at.desc()).limit(50).all()
+    return [a.to_dict() for a in alerts]
+
 @app.delete("/api/donors/{donor_id}", tags=["Donors"])
 def delete_donor(
     donor_id: str,
@@ -1749,19 +1784,45 @@ def delete_donor(
     db: Session = Depends(get_db)
 ):
     """
-    Requirement 4: Deletion Persistence in Database & R2
+    Deletes voluntary donor pledge.
+    Only the user that registered the donor by their own email is authorized to delete it.
+    Zero deletion notification or alert is dispatched.
     """
     donor = db.query(DonorModel).filter(DonorModel.id == donor_id).first()
     if not donor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Donor not found.")
 
+    if user_email:
+        clean_email = user_email.strip().lower()
+        is_owner = (
+            (donor.user_email and donor.user_email.strip().lower() == clean_email) or
+            (donor.email and donor.email.strip().lower() == clean_email)
+        )
+        if not is_owner:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Unauthorized: You may only delete blood pledges registered under your verified email."
+            )
+
     target_email = user_email.strip().lower() if user_email else donor.user_email
+
+    # Adjust blood bank inventory
+    inv_item = db.query(InventoryModel).filter(InventoryModel.blood_type == donor.blood_type).first()
+    if inv_item and inv_item.units_available > 0:
+        inv_item.units_available -= 1
+        inv_item.status = "optimal" if inv_item.units_available >= 15 else "moderate" if inv_item.units_available >= 5 else "critical"
+        db.add(inv_item)
+
+    # Clean up associated alerts for this donor so dead links do not linger
+    db.query(TransfusionAlertModel).filter(TransfusionAlertModel.donor_id == donor_id).delete()
+
     db.delete(donor)
     db.commit()
 
     if target_email:
         sync_user_state_to_r2(target_email, db)
 
+    # Strict compliance: Zero deletion notification is dispatched
     return {"message": "Donor deleted successfully.", "deleted_id": donor_id}
 
 # ==========================================

@@ -342,3 +342,29 @@ class ClinicalDocumentModel(Base):
             "file_size_kb": self.file_size_kb,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
+
+class TransfusionAlertModel(Base):
+    __tablename__ = "transfusion_alerts"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    creator_email = Column(String(120), index=True, nullable=False) # Registrant email (excluded from alert)
+    donor_id = Column(String(36), index=True, nullable=False) # Targeted donor ID for direct navigation
+    blood_type = Column(String(10), nullable=False, index=True)
+    donor_name = Column(String(100), nullable=False)
+    location = Column(String(200), nullable=False)
+    title = Column(String(150), nullable=False)
+    message = Column(String(500), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "creator_email": self.creator_email,
+            "donor_id": self.donor_id,
+            "blood_type": self.blood_type,
+            "donor_name": self.donor_name,
+            "location": self.location,
+            "title": self.title,
+            "message": self.message,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
