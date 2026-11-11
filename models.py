@@ -6,6 +6,52 @@ from database import Base
 def generate_uuid() -> str:
     return str(uuid.uuid4())
 
+class UserModel(Base):
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    full_name = Column(String(100), nullable=False)
+    email = Column(String(120), unique=True, index=True, nullable=False)
+    phone = Column(String(30), nullable=True)
+    hashed_password = Column(String(255), nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    verified_at = Column(DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "full_name": self.full_name,
+            "email": self.email,
+            "phone": self.phone,
+            "is_verified": self.is_verified,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "verified_at": self.verified_at.isoformat() if self.verified_at else None
+        }
+
+class OtpTokenModel(Base):
+    __tablename__ = "otp_tokens"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), index=True, nullable=False)
+    email = Column(String(120), index=True, nullable=False)
+    otp_code = Column(String(6), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "email": self.email,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "is_used": self.is_used,
+            "attempts": self.attempts
+        }
+
 class InventoryModel(Base):
     __tablename__ = "inventory"
 

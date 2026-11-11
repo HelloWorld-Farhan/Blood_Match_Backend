@@ -91,6 +91,9 @@ def init_db():
     Seeds standard ABO/Rh blood groups if inventory table is newly created.
     """
     try:
+        # Ensure all models are registered in Base.metadata
+        import models
+
         logger.info(f"Running auto-schema migration on {'SQLite Fallback' if is_sqlite_fallback else 'PostgreSQL'}...")
         # Automatically creates tables from metadata
         Base.metadata.create_all(bind=engine)
@@ -98,19 +101,18 @@ def init_db():
 
         # Seed initial blood inventory if empty
         with SessionLocal() as session:
-            from models import InventoryModel
-            count = session.query(InventoryModel).count()
+            count = session.query(models.InventoryModel).count()
             if count == 0:
                 logger.info("Seeding initial ABO & RhD clinical inventory units...")
                 seeds = [
-                    InventoryModel(blood_type="O-", units_available=14, status="optimal", temperature_celsius=3.8),
-                    InventoryModel(blood_type="O+", units_available=22, status="optimal", temperature_celsius=4.0),
-                    InventoryModel(blood_type="A-", units_available=8, status="moderate", temperature_celsius=3.9),
-                    InventoryModel(blood_type="A+", units_available=19, status="optimal", temperature_celsius=4.1),
-                    InventoryModel(blood_type="B-", units_available=4, status="critical", temperature_celsius=4.0),
-                    InventoryModel(blood_type="B+", units_available=17, status="optimal", temperature_celsius=3.7),
-                    InventoryModel(blood_type="AB-", units_available=2, status="critical", temperature_celsius=4.2),
-                    InventoryModel(blood_type="AB+", units_available=9, status="moderate", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="O-", units_available=14, status="optimal", temperature_celsius=3.8),
+                    models.InventoryModel(blood_type="O+", units_available=22, status="optimal", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="A-", units_available=8, status="moderate", temperature_celsius=3.9),
+                    models.InventoryModel(blood_type="A+", units_available=19, status="optimal", temperature_celsius=4.1),
+                    models.InventoryModel(blood_type="B-", units_available=4, status="critical", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="B+", units_available=17, status="optimal", temperature_celsius=3.7),
+                    models.InventoryModel(blood_type="AB-", units_available=2, status="critical", temperature_celsius=4.2),
+                    models.InventoryModel(blood_type="AB+", units_available=9, status="moderate", temperature_celsius=4.0),
                 ]
                 session.add_all(seeds)
                 session.commit()
