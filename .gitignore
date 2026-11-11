@@ -35,6 +35,12 @@ venv.bak/
 .env.local
 .env.*.local
 
+# Local SQLite Fallback Database Files
+*.db
+*.sqlite
+*.sqlite3
+bloodmatch_fallback.db
+
 # IDE & OS
 .vscode/
 .idea/
