@@ -44,6 +44,14 @@ venv.bak/
 *.sqlite3
 bloodmatch_fallback.db
 
+# Documentation: ignore all markdown files except README.md
+*.md
+!README.md
+!readme.md
+**/*.md
+!**/README.md
+!**/readme.md
+
 # IDE & OS
 .vscode/
 .idea/
