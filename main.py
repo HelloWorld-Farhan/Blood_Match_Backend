@@ -42,6 +42,8 @@ from schemas import (
     PasswordResetRequest,
     PasswordResetVerifyRequest,
     PasswordResetConfirmRequest,
+    PasswordVerifyCurrentRequest,
+    PasswordUpdatePreviousRequest,
     AuthTokenResponse,
     InventoryUpdateRequest,
     DonorSendOtpRequest,
@@ -1361,7 +1363,14 @@ def confirm_password_reset(
     email_clean = payload.email.strip().lower()
 
     # 1. Validate reset session token
-    is_valid_token, token_user_id = verify_password_reset_session_token(payload.reset_token, email_clean)
+    token_to_verify = payload.reset_token or payload.reset_session_token
+    if not token_to_verify:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset verification token is required."
+        )
+
+    is_valid_token, token_user_id = verify_password_reset_session_token(token_to_verify, email_clean)
     if not is_valid_token or not token_user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1436,9 +1445,146 @@ def confirm_password_reset(
         ip_address=ip_address.split(",")[0].strip()
     )
 
+    try:
+        sync_user_state_to_r2(user.email, db)
+    except Exception as exc:
+        logger.warning(f"R2 cloud sync notice on password update: {exc}")
+
     return {
         "message": "Password successfully updated and account unlocked. You may now log in with your new credentials.",
         "is_locked": False,
+        "audit_timestamp": audit_timestamp
+    }
+
+@app.post("/api/auth/password-update/verify-current", tags=["Password Reset"])
+def verify_current_password_endpoint(
+    payload: PasswordVerifyCurrentRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Validates practitioner's current password prior to unlocking new password fields.
+    """
+    email_clean = payload.email.strip().lower()
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Practitioner account not found."
+        )
+
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Previous (current) password is incorrect. Please verify your identity."
+        )
+
+    return {
+        "valid": True,
+        "message": "Current password verified successfully."
+    }
+
+@app.post("/api/auth/password-update/previous", tags=["Password Reset"])
+def update_password_by_previous(
+    payload: PasswordUpdatePreviousRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Direct password update authenticated by current/previous password.
+    - Validates current password match
+    - Enforces password strength criteria
+    - Enforces previous password prevention (cannot equal current or recent passwords)
+    - Replaces previous password with new hash
+    - Dispatches security confirmation email (NO OTP required for this flow)
+    - Syncs R2 state
+    """
+    email_clean = payload.email.strip().lower()
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Practitioner account not found."
+        )
+
+    # 1. Verify Current Password
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Previous (current) password is incorrect. Please verify your credentials."
+        )
+
+    # 2. Enforce Password Strength Policy
+    is_valid_pw, pw_err = validate_password_strength(payload.new_password)
+    if not is_valid_pw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=pw_err
+        )
+
+    # 3. Direct equality check: new password cannot be the same as current password
+    if payload.current_password == payload.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password cannot be identical to your previous password. Please choose a different password."
+        )
+
+    # 4. Enforce Previous Password Prevention across history
+    history_records = (
+        db.query(PasswordHistoryModel)
+        .filter(PasswordHistoryModel.user_id == user.id)
+        .order_by(PasswordHistoryModel.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    past_hashes = [rec.hashed_password for rec in history_records]
+
+    is_novel_pw, history_err = check_password_history(
+        new_password=payload.new_password,
+        current_hash=user.hashed_password,
+        past_hashes=past_hashes
+    )
+    if not is_novel_pw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=history_err or "New password cannot be the same as your previous password."
+        )
+
+    # 5. Archive current password into history
+    old_history_entry = PasswordHistoryModel(
+        user_id=user.id,
+        hashed_password=user.hashed_password
+    )
+    db.add(old_history_entry)
+
+    # 6. Hash and update new password
+    new_hashed = hash_password(payload.new_password)
+    user.hashed_password = new_hashed
+    user.locked_until = None
+    user.failed_login_attempts = 0
+    user.last_failed_login = None
+
+    db.commit()
+
+    # 7. Security Notification Email with audit details (No OTP used)
+    audit_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    device_info = request.headers.get("user-agent", "Unknown Device / Web Browser")
+    ip_address = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "Unknown IP")
+
+    send_password_changed_notification(
+        recipient_email=user.email,
+        recipient_name=user.full_name,
+        timestamp=audit_timestamp,
+        device_info=device_info[:150],
+        ip_address=ip_address.split(",")[0].strip()
+    )
+
+    try:
+        sync_user_state_to_r2(user.email, db)
+    except Exception as exc:
+        logger.warning(f"R2 cloud sync notice on password update: {exc}")
+
+    return {
+        "message": "Security password updated successfully. A confirmation email has been dispatched to your address.",
         "audit_timestamp": audit_timestamp
     }
 

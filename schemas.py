@@ -89,7 +89,17 @@ class PasswordResetVerifyRequest(BaseModel):
 
 class PasswordResetConfirmRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)
-    reset_token: str = Field(..., min_length=10)
+    reset_token: Optional[str] = None
+    reset_session_token: Optional[str] = None
+    new_password: str = Field(..., min_length=1, max_length=128)
+
+class PasswordVerifyCurrentRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+    current_password: str = Field(..., min_length=1, max_length=128)
+
+class PasswordUpdatePreviousRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+    current_password: str = Field(..., min_length=1, max_length=128)
     new_password: str = Field(..., min_length=1, max_length=128)
 
 class AuthTokenResponse(BaseModel):
