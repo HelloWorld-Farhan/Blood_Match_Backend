@@ -1,6 +1,7 @@
 import os
 import smtplib
 import logging
+from typing import Optional
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from jinja2 import Template
@@ -471,20 +472,22 @@ def send_password_changed_notification(
     recipient_email: str,
     recipient_name: str,
     timestamp: str,
-    browser: str,
-    ip_address: str
+    browser: str = "Unknown Browser / Device",
+    ip_address: str = "Unknown IP",
+    device_info: Optional[str] = None
 ) -> bool:
     """Dispatches the security audit confirmation email upon successful password update."""
+    effective_browser = device_info or browser
     rendered_html = jinja_changed_html.render(
         name=recipient_name,
         timestamp=timestamp,
-        browser=browser,
+        browser=effective_browser,
         ip_address=ip_address
     )
     rendered_text = jinja_changed_text.render(
         name=recipient_name,
         timestamp=timestamp,
-        browser=browser,
+        browser=effective_browser,
         ip_address=ip_address
     )
 
