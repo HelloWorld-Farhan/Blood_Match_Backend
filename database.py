@@ -28,6 +28,19 @@ def create_database_engine():
     if pg_url.startswith("postgres://"):
         pg_url = pg_url.replace("postgres://", "postgresql://", 1)
 
+    # Automatically URL-encode password if it contains an unencoded '@' symbol
+    if "://" in pg_url and pg_url.count("@") > 1:
+        try:
+            import urllib.parse
+            prefix, rest = pg_url.split("://", 1)
+            userinfo, hostinfo = rest.rsplit("@", 1)
+            if ":" in userinfo:
+                user, password = userinfo.split(":", 1)
+                encoded_password = urllib.parse.quote(password)
+                pg_url = f"{prefix}://{user}:{encoded_password}@{hostinfo}"
+        except Exception:
+            pass
+
     if pg_url:
         try:
             logger.info("Attempting connection to primary PostgreSQL database...")
