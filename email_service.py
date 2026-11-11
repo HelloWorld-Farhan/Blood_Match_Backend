@@ -394,6 +394,68 @@ Thank you for being part of the BloodMatch community.
 BloodMatch Emergency Transfusion Network
 """
 
+DONOR_THANKYOU_HTML_FALLBACK = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Thank You for Registering as a Voluntary Blood Donor</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
+    .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
+    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
+    .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
+    .content { padding: 32px; }
+    .title { font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }
+    .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
+    .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
+    .pledge-box { background: #FDF9F8; border: 1.5px solid #D72638; border-radius: 14px; padding: 18px 20px; margin: 18px 0; }
+    .pledge-title { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .pledge-row { font-size: 13px; color: #1A1D20; margin-top: 4px; }
+    .pledge-val { font-weight: 800; color: #D72638; }
+    .notice-box { background: #F0FDF4; border-left: 3px solid #10B981; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #166534; line-height: 1.5; margin-top: 20px; }
+    .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header"><span class="brand-pill">BloodMatch Voluntary Donor Network</span></div>
+      <div class="content">
+        <h1 class="title">Thank You, Lifesaver!</h1>
+        <div class="greeting">Hello, {{ name }}</div>
+        <p class="paragraph">Thank you for registering as a certified voluntary blood donor with the BloodMatch Emergency Transfusion Network.</p>
+        <div class="pledge-box">
+          <div class="pledge-title">Voluntary Blood Pledge Confirmed</div>
+          <div class="pledge-row">Blood Group: <span class="pledge-val">{{ blood_type }}</span></div>
+          <div class="pledge-row">Emergency Locality: <strong>{{ location }}</strong></div>
+        </div>
+        <div class="notice-box">
+          <strong>Standby Notification:</strong> If someone in your area needs blood matching your {{ blood_type }} group, our clinical coordination team will notify you immediately.
+        </div>
+        <p class="paragraph" style="margin-top: 18px; font-size: 12px;">Your noble readiness to donate helps trauma centers and local hospitals save lives in critical situations.</p>
+      </div>
+      <div class="footer">BloodMatch Emergency Transfusion Network • Voluntary Donor Ledger</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+DONOR_THANKYOU_TEXT_TEMPLATE = """
+Thank You for Registering as a Voluntary Blood Donor - BloodMatch
+Hello, {{ name }}
+
+Thank you for registering as a voluntary blood donor with BloodMatch.
+Your voluntary pledge to donate Group {{ blood_type }} blood has been enrolled in our emergency registry for {{ location }}.
+
+If an emergency transfusion request matching your blood group arises in your area, our clinical coordination team will notify you immediately.
+
+Thank you for your noble commitment to saving lives.
+BloodMatch Emergency Transfusion Network
+"""
+
 NEW_SESSION_HTML_FALLBACK = """
 <!DOCTYPE html>
 <html lang="en">
@@ -478,6 +540,9 @@ jinja_2fa_text = Template(TWO_FACTOR_TEXT_TEMPLATE)
 
 jinja_welcome_html = load_template("welcome-thankyou.html", WELCOME_HTML_FALLBACK)
 jinja_welcome_text = Template(WELCOME_TEXT_TEMPLATE)
+
+jinja_donor_thankyou_html = Template(DONOR_THANKYOU_HTML_FALLBACK)
+jinja_donor_thankyou_text = Template(DONOR_THANKYOU_TEXT_TEMPLATE)
 
 jinja_session_html = Template(NEW_SESSION_HTML_FALLBACK)
 jinja_session_text = Template(NEW_SESSION_TEXT_TEMPLATE)
@@ -744,3 +809,22 @@ def send_new_login_session_alert(
         )
         return True
     return _dispatch_smtp("Security Notice: New Session Login on BloodMatch", recipient_email, rendered_text, rendered_html)
+
+def send_donor_thankyou_email(recipient_email: str, recipient_name: str, blood_type: str, location: str) -> bool:
+    """Dispatches the voluntary blood donor thank-you & emergency readiness notice."""
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "blood_type": blood_type,
+        "location": location
+    }
+    if _dispatch_google_apps_script("donor_thankyou", gas_payload):
+        return True
+
+    rendered_html = jinja_donor_thankyou_html.render(name=recipient_name, blood_type=blood_type, location=location)
+    rendered_text = jinja_donor_thankyou_text.render(name=recipient_name, blood_type=blood_type, location=location)
+
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
+        logger.info(f"[DONOR THANK YOU DISPATCH] Recipient: {recipient_email} | Name: {recipient_name} | Blood: {blood_type} | Location: {location}")
+        return True
+    return _dispatch_smtp("Thank You for Registering as a Voluntary Blood Donor - BloodMatch", recipient_email, rendered_text, rendered_html)

@@ -169,6 +169,10 @@ function buildEmailContent(action, name, payload) {
     case "welcome_thankyou":
       return buildWelcomeEmail(name, payload);
 
+    case "donor_thankyou":
+    case "donor_registration":
+      return buildDonorThankYouEmail(name, payload);
+
     default:
       return null;
   }
@@ -498,6 +502,50 @@ function buildWelcomeEmail(name, payload) {
     subject: subject,
     textBody: textBody,
     htmlBody: wrapHtmlFrame(htmlContent, "Welcome to BloodMatch")
+  };
+}
+
+/**
+ * 8. Voluntary Blood Donor Thank You & Standby Advisory
+ */
+function buildDonorThankYouEmail(name, payload) {
+  var bloodType = payload.blood_type || "Donor";
+  var location = payload.location || payload.city || "your registered locality";
+  var subject = "Thank You for Registering as a Voluntary Blood Donor - BloodMatch";
+
+  var textBody = 
+    "BloodMatch Emergency Transfusion Network\n" +
+    "Voluntary Blood Donor Registration\n\n" +
+    "Hello, " + name + ",\n\n" +
+    "Thank you for registering as a voluntary blood donor with BloodMatch.\n\n" +
+    "Your voluntary pledge to donate Group " + bloodType + " blood has been verified and enrolled into our live emergency transfusion directory for " + location + ".\n\n" +
+    "If an emergency transfusion request matching your blood group arises in your area, our clinical coordination team will notify you immediately.\n\n" +
+    "Thank you for your noble commitment to saving lives.\n\n" +
+    "BloodMatch Emergency Transfusion Network";
+
+  var htmlContent =
+    '<div class="header"><span class="brand-pill">BloodMatch Voluntary Donor Network</span></div>' +
+    '<div class="content">' +
+      '<h1 class="title">Thank You, Lifesaver!</h1>' +
+      '<div class="greeting">Hello, ' + escapeHtml(name) + '</div>' +
+      '<p class="paragraph">Thank you for registering as a certified voluntary blood donor with the BloodMatch Emergency Transfusion Network.</p>' +
+      '<div class="notice-box" style="background: #FDF9F8; border-color: #D72638; color: #1A1D20;">' +
+        '<strong>Pledge Enrolled:</strong> Group <span style="font-weight: 800; color: #D72638;">' + escapeHtml(bloodType) + '</span> • Area: <strong>' + escapeHtml(location) + '</strong>' +
+      '</div>' +
+      '<div class="notice-box" style="background: #F0FDF4; border-color: #10B981; color: #166534;">' +
+        '<strong>Standby Protocol:</strong> If an emergency transfusion request matching your blood group arises in your area, our clinical coordination team will contact you directly to mobilize emergency assistance.' +
+      '</div>' +
+      '<p class="paragraph" style="margin-top: 18px;">Your readiness to donate in critical emergencies is an invaluable service to patients and local hospitals.</p>' +
+    '</div>' +
+    '<div class="footer">' +
+      'BloodMatch Emergency Transfusion Network<br>' +
+      'Clinical Voluntary Donor Registry' +
+    '</div>';
+
+  return {
+    subject: subject,
+    textBody: textBody,
+    htmlBody: wrapHtmlFrame(htmlContent, "Voluntary Donor Registration Confirmed")
   };
 }
 

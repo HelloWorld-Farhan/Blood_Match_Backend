@@ -43,6 +43,7 @@ from schemas import (
     PasswordResetConfirmRequest,
     AuthTokenResponse,
     InventoryUpdateRequest,
+    DonorSendOtpRequest,
     DonorCreateRequest,
     EmergencyCreateRequest,
     ClinicianProfileRequest,
@@ -76,6 +77,7 @@ from email_service import (
     send_password_changed_notification,
     send_2fa_login_email,
     send_welcome_email,
+    send_donor_thankyou_email,
     send_new_login_session_alert
 )
 from storage_service import (
@@ -1561,27 +1563,131 @@ def list_donors(
     db: Session = Depends(get_db)
 ):
     query = db.query(DonorModel)
-    if blood_type:
+    if blood_type and blood_type.upper() != "ALL":
         query = query.filter(DonorModel.blood_type == blood_type.upper())
-    if user_email:
-        query = query.filter((DonorModel.user_email == user_email.strip().lower()) | (DonorModel.user_email.is_(None)))
+    
     donors = query.order_by(DonorModel.created_at.desc()).all()
-    return [d.to_dict() for d in donors]
+    donor_dicts = [d.to_dict() for d in donors]
+
+    # If user_email is provided, sort so that donors registered by that user are placed at the very top
+    if user_email:
+        clean_user_email = user_email.strip().lower()
+        my_donors = [d for d in donor_dicts if (d.get("user_email") == clean_user_email or d.get("email") == clean_user_email)]
+        other_donors = [d for d in donor_dicts if not (d.get("user_email") == clean_user_email or d.get("email") == clean_user_email)]
+        return my_donors + other_donors
+
+    return donor_dicts
+
+@app.post("/api/donors/send-otp", tags=["Donors"])
+def send_donor_otp(
+    payload: DonorSendOtpRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Dispatches a 6-digit cryptographic verification code to verify a prospective voluntary donor's email.
+    """
+    email_clean = payload.email.strip().lower()
+
+    # Rate limiting: check cooldown from last active OTP for this email
+    last_otp = (
+        db.query(OtpTokenModel)
+        .filter(
+            OtpTokenModel.user_id == email_clean,
+            OtpTokenModel.token_type == "donor_verification",
+            OtpTokenModel.is_used == False,
+        )
+        .order_by(OtpTokenModel.created_at.desc())
+        .first()
+    )
+    if last_otp:
+        cooldown_remaining = calculate_cooldown_remaining(last_otp.created_at)
+        if cooldown_remaining > 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {cooldown_remaining} seconds before requesting a new donor verification code."
+            )
+
+    otp_code = generate_cryptographic_otp()
+    otp_record = OtpTokenModel(
+        user_id=email_clean,
+        email=email_clean,
+        otp_code=otp_code,
+        token_type="donor_verification",
+        expires_at=calculate_otp_expiry(),
+    )
+    db.add(otp_record)
+    db.commit()
+
+    # Dispatch via Google Apps Script (action: verification)
+    send_verification_email(
+        recipient_email=email_clean,
+        recipient_name=payload.name,
+        otp_code=otp_code
+    )
+
+    return {
+        "message": f"Verification code dispatched to {email_clean}",
+        "success": True,
+        "cooldown_seconds": 30
+    }
 
 @app.post("/api/donors", tags=["Donors"], status_code=status.HTTP_201_CREATED)
 def register_donor(
     payload: DonorCreateRequest,
     db: Session = Depends(get_db)
 ):
-    email_clean = payload.user_email.strip().lower() if payload.user_email else None
+    donor_email = payload.email.strip().lower()
+
+    # If an OTP code was supplied, verify against pending token
+    if payload.otp_code:
+        otp_clean = payload.otp_code.strip()
+        otp_record = (
+            db.query(OtpTokenModel)
+            .filter(
+                OtpTokenModel.user_id == donor_email,
+                OtpTokenModel.token_type == "donor_verification",
+                OtpTokenModel.is_used == False,
+            )
+            .order_by(OtpTokenModel.created_at.desc())
+            .first()
+        )
+        if not otp_record:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No pending verification code found for this email address. Please request a code first."
+            )
+        if datetime.utcnow() > otp_record.expires_at:
+            otp_record.is_used = True
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Verification code has expired. Please request a new one."
+            )
+        if otp_record.otp_code != otp_clean:
+            otp_record.attempts += 1
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid verification code. Please check your email and try again."
+            )
+        otp_record.is_used = True
+        db.commit()
+
+    email_clean = payload.user_email.strip().lower() if payload.user_email else donor_email
+    donor_id = f"DNR-{int(datetime.utcnow().timestamp()) % 1000000:06d}"
+
     new_donor = DonorModel(
+        id=donor_id,
         user_email=email_clean,
-        name=payload.name,
-        blood_type=payload.blood_type.upper(),
-        phone=payload.phone,
-        email=payload.email,
-        city=payload.city,
-        hospital=payload.hospital,
+        name=payload.name.strip(),
+        blood_type=payload.blood_type.upper().strip(),
+        phone=payload.phone.strip(),
+        email=donor_email,
+        city=payload.city.strip(),
+        location=payload.location.strip() if payload.location else payload.city.strip(),
+        hospital=payload.hospital.strip() if payload.hospital else "BloodMatch Emergency Network",
+        age=payload.age or 28,
+        gender=payload.gender.upper() if payload.gender else "MALE",
         last_donation_date=payload.last_donation_date,
         is_available=payload.is_available
     )
@@ -1590,6 +1696,17 @@ def register_donor(
 
     if email_clean:
         sync_user_state_to_r2(email_clean, db)
+
+    # Dispatch Thank You email to the verified donor
+    try:
+        send_donor_thankyou_email(
+            recipient_email=new_donor.email,
+            recipient_name=new_donor.name,
+            blood_type=new_donor.blood_type,
+            location=new_donor.location or new_donor.city
+        )
+    except Exception as exc:
+        logger.warning(f"Donor thank you email dispatch failed: {exc}")
 
     return new_donor.to_dict()
 

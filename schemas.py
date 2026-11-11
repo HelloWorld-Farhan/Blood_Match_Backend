@@ -6,6 +6,10 @@ class InventoryUpdateRequest(BaseModel):
     status: Optional[str] = None
     temperature_celsius: Optional[float] = None
 
+class DonorSendOtpRequest(BaseModel):
+    email: str = Field(..., min_length=5)
+    name: str = Field(..., min_length=2)
+
 class DonorCreateRequest(BaseModel):
     user_email: Optional[str] = None
     name: str = Field(..., min_length=2)
@@ -13,9 +17,13 @@ class DonorCreateRequest(BaseModel):
     phone: str = Field(..., min_length=5)
     email: str = Field(..., min_length=5)
     city: str = Field(..., min_length=2)
-    hospital: str = Field(..., min_length=2)
+    location: Optional[str] = None
+    hospital: Optional[str] = "BloodMatch Emergency Network"
+    age: Optional[int] = Field(28, ge=18, le=65)
+    gender: Optional[str] = "MALE"
     last_donation_date: Optional[str] = None
     is_available: bool = True
+    otp_code: Optional[str] = None
 
 class EmergencyCreateRequest(BaseModel):
     user_email: Optional[str] = None

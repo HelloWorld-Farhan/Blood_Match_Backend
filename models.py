@@ -183,7 +183,11 @@ class DonorModel(Base):
     phone = Column(String(30), nullable=False)
     email = Column(String(120), nullable=False)
     city = Column(String(100), nullable=False)
-    hospital = Column(String(120), nullable=False)
+    location = Column(String(200), nullable=True)  # Detailed locality / area (e.g., in Delhi)
+    hospital = Column(String(120), nullable=False, default="BloodMatch Emergency Network")
+    age = Column(Integer, nullable=True, default=28)
+    gender = Column(String(20), nullable=True, default="MALE")
+    units_donated_total = Column(Integer, nullable=True, default=0)
     last_donation_date = Column(String(30), nullable=True)
     is_available = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -197,7 +201,11 @@ class DonorModel(Base):
             "phone": self.phone,
             "email": self.email,
             "city": self.city,
+            "location": self.location or self.city,
             "hospital": self.hospital,
+            "age": self.age or 28,
+            "gender": self.gender or "MALE",
+            "units_donated_total": self.units_donated_total or 0,
             "last_donation_date": self.last_donation_date,
             "is_available": self.is_available,
             "created_at": self.created_at.isoformat() if self.created_at else None
