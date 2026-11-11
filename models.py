@@ -23,6 +23,9 @@ class UserModel(Base):
     last_failed_login = Column(DateTime, nullable=True)
     locked_until = Column(DateTime, nullable=True)
 
+    # Adaptive Two-Factor Authentication
+    is_2fa_enabled = Column(Boolean, default=False, nullable=False)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -30,6 +33,7 @@ class UserModel(Base):
             "email": self.email,
             "phone": self.phone,
             "is_verified": self.is_verified,
+            "is_2fa_enabled": self.is_2fa_enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
             "failed_login_attempts": self.failed_login_attempts,
@@ -107,6 +111,32 @@ class UserSessionModel(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_active": self.last_active.isoformat() if self.last_active else None,
             "is_current": bool(current_session_id and self.id == current_session_id)
+        }
+
+class TrustedDeviceModel(Base):
+    __tablename__ = "trusted_devices"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), index=True, nullable=False)
+    device_id = Column(String(64), index=True, nullable=False)
+    device_name = Column(String(100), nullable=False)
+    browser = Column(String(100), nullable=False)
+    os = Column(String(50), nullable=False)
+    ip_address = Column(String(50), nullable=False)
+    trusted_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "device_id": self.device_id,
+            "device_name": self.device_name,
+            "browser": self.browser,
+            "os": self.os,
+            "ip_address": self.ip_address,
+            "trusted_at": self.trusted_at.isoformat() if self.trusted_at else None,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None
         }
 
 class InventoryModel(Base):

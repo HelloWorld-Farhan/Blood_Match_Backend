@@ -342,6 +342,78 @@ def send_password_reset_email(recipient_email: str, recipient_name: str, otp_cod
         return True
     return _dispatch_smtp(f"BloodMatch Password Reset Verification Code: {otp_code}", recipient_email, rendered_text, rendered_html)
 
+TWO_FACTOR_HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Two-Factor Authentication Challenge</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0B0E14; color: #E2E8F0; margin: 0; padding: 0; }
+    .container { max-width: 580px; margin: 40px auto; background: #111726; border: 1px solid #6366F1; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(99, 102, 241, 0.2); }
+    .header { background: linear-gradient(135deg, #4338CA 0%, #6366F1 100%); padding: 32px 24px; text-align: center; }
+    .header h1 { margin: 0; color: #FFFFFF; font-size: 24px; font-weight: 800; }
+    .header p { margin: 8px 0 0 0; color: #E0E7FF; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; font-weight: 600; }
+    .content { padding: 36px 32px; }
+    .greeting { font-size: 18px; font-weight: 700; color: #F8FAFC; margin-bottom: 12px; }
+    .message { font-size: 15px; line-height: 1.6; color: #94A3B8; margin-bottom: 24px; }
+    .otp-box { background: #06090F; border: 2px dashed #6366F1; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0; }
+    .otp-code { font-family: 'Courier New', Courier, monospace; font-size: 38px; font-weight: 800; letter-spacing: 12px; color: #818CF8; display: inline-block; margin: 0; }
+    .timer-alert { margin-top: 12px; font-size: 13px; color: #C7D2FE; font-weight: 500; }
+    .audit-card { background: #06090F; border: 1px solid #1E293B; border-radius: 12px; padding: 16px; margin: 20px 0; font-size: 13px; }
+    .audit-row { display: flex; justify-content: space-between; padding: 6px 0; color: #94A3B8; }
+    .audit-val { color: #F1F5F9; font-weight: 600; }
+    .guidance-box { background: rgba(67, 56, 202, 0.2); border-left: 4px solid #6366F1; padding: 14px 18px; border-radius: 6px; margin-top: 24px; font-size: 13px; color: #C7D2FE; line-height: 1.5; }
+    .footer { border-top: 1px solid #1E293B; padding: 24px; text-align: center; font-size: 12px; color: #64748B; background: #0D121D; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🛡️ Two-Factor Authentication</h1>
+      <p>Security Step-Up Verification</p>
+    </div>
+    <div class="content">
+      <div class="greeting">Hello, {{ name }}</div>
+      <div class="message">A sign-in attempt was initiated from a new or protected device. Please submit the following single-use 6-digit 2FA token to complete authentication:</div>
+      <div class="otp-box">
+        <div class="otp-code">{{ otp_code }}</div>
+        <div class="timer-alert">⏱ Valid for 10 minutes</div>
+      </div>
+      <div class="audit-card">
+        <div class="audit-row"><span>Attempted Terminal:</span><span class="audit-val">{{ device_name }}</span></div>
+        <div class="audit-row"><span>Source IP Address:</span><span class="audit-val">{{ ip_address }}</span></div>
+      </div>
+      <div class="guidance-box">
+        <strong>Security Notice:</strong> If you did not initiate this login attempt, your credentials may be known to an unauthorized party. Change your password immediately.
+      </div>
+    </div>
+    <div class="footer">
+      BloodMatch Transfusion Network &bull; Autonomous Threat Defense Node<br>
+      Do not share this authentication token with anyone.
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+TWO_FACTOR_TEXT_TEMPLATE = """
+BloodMatch Two-Factor Authentication Challenge
+
+Hello, {{ name }}
+
+Your 6-digit login verification code is: {{ otp_code }}
+Attempted Device: {{ device_name }}
+Source IP: {{ ip_address }}
+
+This code is valid for 10 minutes.
+If you did not initiate this sign-in, please change your password immediately.
+"""
+
+jinja_2fa_html = Template(TWO_FACTOR_HTML_TEMPLATE)
+jinja_2fa_text = Template(TWO_FACTOR_TEXT_TEMPLATE)
+
 def send_password_changed_notification(
     recipient_email: str,
     recipient_name: str,
@@ -369,3 +441,32 @@ def send_password_changed_notification(
         )
         return True
     return _dispatch_smtp("✅ Security Notice: BloodMatch Password Successfully Updated", recipient_email, rendered_text, rendered_html)
+
+def send_2fa_login_email(
+    recipient_email: str,
+    recipient_name: str,
+    otp_code: str,
+    device_name: str,
+    ip_address: str
+) -> bool:
+    """Dispatches 2FA step-up login verification email."""
+    rendered_html = jinja_2fa_html.render(
+        name=recipient_name,
+        otp_code=otp_code,
+        device_name=device_name,
+        ip_address=ip_address
+    )
+    rendered_text = jinja_2fa_text.render(
+        name=recipient_name,
+        otp_code=otp_code,
+        device_name=device_name,
+        ip_address=ip_address
+    )
+
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
+        logger.info(
+            f"[2FA LOGIN CODE DISPATCH] Recipient: {recipient_email} | Name: {recipient_name} | OTP: {otp_code} | Device: {device_name} | IP: {ip_address}"
+        )
+        return True
+    return _dispatch_smtp(f"🛡️ BloodMatch 2FA Login Code: {otp_code}", recipient_email, rendered_text, rendered_html)
+

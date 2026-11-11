@@ -16,6 +16,7 @@ from models import (
     OtpTokenModel,
     PasswordHistoryModel,
     UserSessionModel,
+    TrustedDeviceModel,
     InventoryModel,
     DonorModel,
     EmergencyRequestModel,
@@ -27,6 +28,8 @@ from schemas import (
     OtpResendRequest,
     UserLoginRequest,
     AccountUnlockRequest,
+    TwoFactorVerifyRequest,
+    TwoFactorToggleRequest,
     PasswordResetRequest,
     PasswordResetVerifyRequest,
     PasswordResetConfirmRequest,
@@ -57,7 +60,8 @@ from email_service import (
     send_verification_email,
     send_lockout_alert_email,
     send_password_reset_email,
-    send_password_changed_notification
+    send_password_changed_notification,
+    send_2fa_login_email
 )
 
 load_dotenv()
@@ -432,14 +436,67 @@ def login_user(
 
     # Verify Password with Bcrypt
     if verify_password(payload.password, user.hashed_password):
-        # Successful login: reset failed counters and unlock
+        # Successful password verification: reset failed counters and unlock
         user.failed_login_attempts = 0
         user.last_failed_login = None
         user.locked_until = None
         db.flush()
 
-        # Requirement 1 & 2: Device Fingerprinting & Session Registry
+        # Parse Device Fingerprint
         fp = parse_device_fingerprint(request, client_device_id=payload.device_id)
+
+        # Requirement 2: Check if current device fingerprint is recognized/trusted
+        trusted_device = db.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == user.id,
+            TrustedDeviceModel.device_id == fp["device_id"]
+        ).first()
+
+        if trusted_device:
+            trusted_device.last_used_at = datetime.utcnow()
+            db.flush()
+
+        # Requirement 2: Adaptive Step-Up Auth Rule
+        # If 2FA is enabled OR if the current device is unrecognized, require a 6-digit email OTP
+        requires_step_up = user.is_2fa_enabled or (trusted_device is None)
+
+        if requires_step_up:
+            # Invalidate prior unused 2FA tokens for this email
+            db.query(OtpTokenModel).filter(
+                OtpTokenModel.email == email_clean,
+                OtpTokenModel.token_type == "2fa_login",
+                OtpTokenModel.is_used == False
+            ).update({"is_used": True})
+
+            otp_2fa = generate_cryptographic_otp()
+            otp_record = OtpTokenModel(
+                user_id=user.id,
+                email=user.email,
+                otp_code=otp_2fa,
+                token_type="2fa_login",
+                expires_at=calculate_otp_expiry(),
+                is_used=False,
+                attempts=0
+            )
+            db.add(otp_record)
+            db.commit()
+
+            send_2fa_login_email(
+                recipient_email=user.email,
+                recipient_name=user.full_name,
+                otp_code=otp_2fa,
+                device_name=fp["device_name"],
+                ip_address=fp["ip_address"]
+            )
+
+            return {
+                "two_factor_required": True,
+                "message": "Two-factor authentication required. A 6-digit security code has been sent to your email.",
+                "email": user.email,
+                "device_id": fp["device_id"],
+                "remember_device": payload.remember_device
+            }
+
+        # Device is recognized and user.is_2fa_enabled is False -> Issue JWT directly
         session_record = UserSessionModel(
             user_id=user.id,
             device_id=fp["device_id"],
@@ -464,6 +521,8 @@ def login_user(
             "token_type": "bearer",
             "session_id": session_record.id,
             "device_id": fp["device_id"],
+            "two_factor_required": False,
+            "device_trusted": True,
             "is_verified": user.is_verified,
             "user": user.to_dict()
         }
@@ -593,6 +652,208 @@ def unlock_account(
         "message": "Account successfully unlocked. Security lockout cleared.",
         "is_locked": False,
         "user": user.to_dict()
+    }
+
+# ==========================================
+# ADAPTIVE 2FA & TRUSTED DEVICE MANAGEMENT
+# ==========================================
+
+@app.post("/api/auth/2fa/verify", tags=["Two-Factor Authentication"])
+def verify_2fa_login(
+    payload: TwoFactorVerifyRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 2: Adaptive Step-Up Auth Verification
+    - Validates 6-digit email 2FA OTP code
+    - If user selected "Remember This Device", whitelists device ID in trusted_devices (max 20 capacity LRU)
+    - Registers session in user_sessions
+    - Mints and returns JWT access token with sid claim
+    """
+    email_clean = payload.email.strip().lower()
+    otp_code_clean = payload.otp_code.strip()
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account not found."
+        )
+
+    # Fetch active 2fa_login token
+    token_record = (
+        db.query(OtpTokenModel)
+        .filter(
+            OtpTokenModel.email == email_clean,
+            OtpTokenModel.token_type == "2fa_login",
+            OtpTokenModel.is_used == False
+        )
+        .order_by(OtpTokenModel.created_at.desc())
+        .first()
+    )
+
+    if not token_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active two-factor verification code found. Please log in again."
+        )
+
+    now = datetime.utcnow()
+    if now > token_record.expires_at:
+        token_record.is_used = True
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Two-factor verification code has expired (10-minute limit). Please log in again to generate a new code."
+        )
+
+    if token_record.otp_code != otp_code_clean:
+        token_record.attempts += 1
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid two-factor verification code. Please check your email."
+        )
+
+    # Invalidate used OTP
+    token_record.is_used = True
+
+    # Parse Device Fingerprint
+    fp = parse_device_fingerprint(request, client_device_id=payload.device_id)
+
+    # Requirement 1: If "Remember This Device" is checked, whitelist device (up to 20 devices LRU)
+    if payload.remember_device:
+        existing_trusted = db.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == user.id,
+            TrustedDeviceModel.device_id == fp["device_id"]
+        ).first()
+
+        if existing_trusted:
+            existing_trusted.last_used_at = now
+        else:
+            # Check 20-device capacity cap
+            trusted_count = db.query(TrustedDeviceModel).filter(TrustedDeviceModel.user_id == user.id).count()
+            if trusted_count >= 20:
+                # Evict oldest by last_used_at
+                oldest_device = (
+                    db.query(TrustedDeviceModel)
+                    .filter(TrustedDeviceModel.user_id == user.id)
+                    .order_by(TrustedDeviceModel.last_used_at.asc())
+                    .first()
+                )
+                if oldest_device:
+                    db.delete(oldest_device)
+                    db.flush()
+
+            new_trusted = TrustedDeviceModel(
+                user_id=user.id,
+                device_id=fp["device_id"],
+                device_name=fp["device_name"],
+                browser=fp["browser"],
+                os=fp["os"],
+                ip_address=fp["ip_address"],
+                trusted_at=now,
+                last_used_at=now
+            )
+            db.add(new_trusted)
+
+    # Register active session in user_sessions
+    session_record = UserSessionModel(
+        user_id=user.id,
+        device_id=fp["device_id"],
+        device_name=fp["device_name"],
+        browser=fp["browser"],
+        os=fp["os"],
+        ip_address=fp["ip_address"],
+        location=fp["location"],
+        status="active"
+    )
+    db.add(session_record)
+    db.flush()
+
+    # Mint JWT access token
+    token = create_access_token(
+        {"sub": user.id, "email": user.email},
+        session_id=session_record.id
+    )
+    db.commit()
+
+    return {
+        "message": "Two-factor authentication verified successfully.",
+        "access_token": token,
+        "token_type": "bearer",
+        "session_id": session_record.id,
+        "device_id": fp["device_id"],
+        "device_trusted": payload.remember_device,
+        "is_verified": user.is_verified,
+        "user": user.to_dict()
+    }
+
+@app.put("/api/auth/2fa/toggle", tags=["Two-Factor Authentication"])
+def toggle_2fa(
+    payload: TwoFactorToggleRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 3: 2FA Management
+    Allows user to enable or disable 2FA with password re-authentication.
+    """
+    if not verify_password(payload.password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Security verification failed: Incorrect password."
+        )
+
+    current_user.is_2fa_enabled = payload.enable_2fa
+    db.commit()
+
+    return {
+        "message": f"Two-factor authentication has been successfully {'enabled' if payload.enable_2fa else 'disabled'}.",
+        "is_2fa_enabled": current_user.is_2fa_enabled
+    }
+
+@app.get("/api/auth/trusted-devices", tags=["Two-Factor Authentication"])
+def list_trusted_devices(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Lists all remembered/trusted devices for the authenticated user."""
+    devices = (
+        db.query(TrustedDeviceModel)
+        .filter(TrustedDeviceModel.user_id == current_user.id)
+        .order_by(TrustedDeviceModel.last_used_at.desc())
+        .all()
+    )
+    return [d.to_dict() for d in devices]
+
+@app.delete("/api/auth/trusted-devices/{device_id}", tags=["Two-Factor Authentication"])
+def remove_trusted_device(
+    device_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Removes a device from the trusted whitelist."""
+    device = (
+        db.query(TrustedDeviceModel)
+        .filter(
+            TrustedDeviceModel.device_id == device_id,
+            TrustedDeviceModel.user_id == current_user.id
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trusted device not found."
+        )
+
+    db.delete(device)
+    db.commit()
+    return {
+        "message": f"Device {device.device_name} has been removed from your trusted whitelist.",
+        "device_id": device_id
     }
 
 @app.get("/api/auth/me", tags=["Authentication"])

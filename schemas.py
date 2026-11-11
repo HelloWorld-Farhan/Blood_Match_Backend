@@ -52,6 +52,18 @@ class UserLoginRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)
     password: str = Field(..., min_length=1)
     device_id: Optional[str] = None
+    remember_device: bool = False
+
+# Two-Factor Authentication Schemas
+class TwoFactorVerifyRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+    otp_code: str = Field(..., min_length=6, max_length=6)
+    device_id: str = Field(..., min_length=1, max_length=64)
+    remember_device: bool = False
+
+class TwoFactorToggleRequest(BaseModel):
+    enable_2fa: bool
+    password: str = Field(..., min_length=1)
 
 class AccountUnlockRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)
