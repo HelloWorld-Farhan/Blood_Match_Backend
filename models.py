@@ -18,6 +18,10 @@ class UserModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     verified_at = Column(DateTime, nullable=True)
 
+    @property
+    def name(self) -> str:
+        return self.full_name
+
     # Brute-force protection & Lockout tracking
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     last_failed_login = Column(DateTime, nullable=True)

@@ -777,7 +777,7 @@ def login_user(
         try:
             send_new_login_session_alert(
                 recipient_email=user.email,
-                recipient_name=user.name,
+                recipient_name=user.full_name,
                 device_name=fp["device_name"],
                 ip_address=fp["ip_address"],
                 location=fp["location"],
@@ -1053,7 +1053,7 @@ def verify_2fa_login(
     try:
         send_new_login_session_alert(
             recipient_email=user.email,
-            recipient_name=user.name,
+            recipient_name=user.full_name,
             device_name=fp["device_name"],
             ip_address=fp["ip_address"],
             location=fp["location"],
