@@ -1527,7 +1527,31 @@ def revoke_session(
 @app.get("/api/inventory", tags=["Inventory"])
 def list_inventory(db: Session = Depends(get_db)):
     items = db.query(InventoryModel).order_by(InventoryModel.blood_type).all()
-    return [item.to_dict() for item in items]
+    if not items:
+        standard_groups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+        for bt in standard_groups:
+            db.add(InventoryModel(blood_type=bt, units_available=0, status="critical", temperature_celsius=4.0))
+        db.commit()
+        items = db.query(InventoryModel).order_by(InventoryModel.blood_type).all()
+
+    # Aggregate registered voluntary donors per blood group
+    donors = db.query(DonorModel).filter(DonorModel.is_available == True).all()
+    donor_counts = {}
+    for d in donors:
+        bt = d.blood_type.upper()
+        donor_counts[bt] = donor_counts.get(bt, 0) + max(1, d.units_donated_total or 1)
+
+    result = []
+    for item in items:
+        d_dict = item.to_dict()
+        bt = item.blood_type.upper()
+        donor_pledged = donor_counts.get(bt, 0)
+        total_available = max(item.units_available, donor_pledged)
+        d_dict["units_available"] = total_available
+        d_dict["status"] = "optimal" if total_available >= 15 else "moderate" if total_available >= 5 else "critical"
+        result.append(d_dict)
+
+    return result
 
 @app.put("/api/inventory/{blood_type}", tags=["Inventory"])
 def update_inventory_units(
@@ -1693,6 +1717,14 @@ def register_donor(
     )
     db.add(new_donor)
     db.commit()
+
+    # Synchronize registered donor into blood bank inventory
+    inv_item = db.query(InventoryModel).filter(InventoryModel.blood_type == new_donor.blood_type).first()
+    if inv_item:
+        inv_item.units_available += 1
+        inv_item.status = "optimal" if inv_item.units_available >= 15 else "moderate" if inv_item.units_available >= 5 else "critical"
+        db.add(inv_item)
+        db.commit()
 
     if email_clean:
         sync_user_state_to_r2(email_clean, db)

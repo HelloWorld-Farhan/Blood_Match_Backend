@@ -99,6 +99,30 @@ class TestDonorsGeolocationAndOtp(unittest.TestCase):
         # First donor must be the one matching user_email
         self.assertEqual(donors[0]["email"], "priority.test@hospital.org")
 
+    def test_04_inventory_reflects_donor_pledge(self):
+        # Create a test donor with O- blood type
+        donor = models.DonorModel(
+            name="Donor For Inventory Test",
+            blood_type="O-",
+            phone="+91 9911223344",
+            email=self.test_email,
+            city="Delhi",
+            location="Saket, South Delhi",
+            user_email="clinician.lead@hospital.org",
+            units_donated_total=2,
+            is_available=True
+        )
+        self.db.add(donor)
+        self.db.commit()
+
+        # Query GET /api/inventory
+        response = self.client.get("/api/inventory")
+        self.assertEqual(response.status_code, 200)
+        items = response.json()
+        o_neg = next((i for i in items if i["blood_type"] == "O-"), None)
+        self.assertIsNotNone(o_neg)
+        self.assertGreaterEqual(o_neg["units_available"], 2)
+
         # Cleanup
         self.db.delete(donor)
         self.db.commit()
