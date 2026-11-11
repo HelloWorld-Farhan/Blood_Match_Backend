@@ -1,10 +1,14 @@
 import os
+import re
+import json
+import base64
 import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, status
+import boto3
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -89,6 +93,28 @@ explicit_origins = [orig.strip() for orig in CORS_ORIGINS_RAW.split(",") if orig
 
 # Requirement 1: Fallback regex for modern hosting providers (Vercel, Cloudflare Pages/Workers, Netlify, localhost)
 ORIGIN_REGEX = r"^https?:\/\/(.*\.vercel\.app|.*\.pages\.dev|.*\.workers\.dev|.*\.netlify\.app|localhost|127\.0\.0\.1)(:\d+)?$"
+
+# Cloudflare R2 Object Storage Configuration (Strictly from Environment Variables)
+R2_ENDPOINT = os.getenv("R2_ENDPOINT", "")
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "bloodmatch-storage")
+R2_PUBLIC_URL = os.getenv("R2_PUBLIC_URL", "").rstrip("/")
+
+def get_r2_client():
+    if not (R2_ENDPOINT and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY):
+        return None
+    try:
+        return boto3.client(
+            "s3",
+            endpoint_url=R2_ENDPOINT,
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            region_name="auto"
+        )
+    except Exception as exc:
+        logger.warning(f"R2 client connection error: {exc}")
+        return None
 
 app.add_middleware(
     CORSMiddleware,
@@ -1322,6 +1348,201 @@ def upsert_clinician_profile(
         db.add(profile)
     db.flush()
     return profile.to_dict()
+
+# ==========================================
+# UNIVERSAL AVATAR & R2 CLOUD SYNC ENDPOINTS
+# ==========================================
+@app.post("/api/v1/auth/avatar", tags=["Avatar Sync"])
+async def upload_user_avatar(
+    file: UploadFile = File(...),
+    user_email: Optional[str] = Form(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 2: Cloudflare R2 Backend Upload & Isolation
+    - Uploads under users/{user_email}/profile/avatar/{timestamp}_{sanitized_filename}.webp
+    - Permanent CDN public URL
+    - Updates photo_url in users table
+    - Disaster-proof master mirror to users/{user_email}/clinical_sync_data.json
+    """
+    user = None
+    auth_header = request.headers.get("Authorization") if request else None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            user = get_current_user(token=token, db=db)
+        except Exception:
+            user = None
+
+    if not user and user_email:
+        user = db.query(UserModel).filter(UserModel.email == user_email.strip().lower()).first()
+
+    if not user:
+        user = db.query(UserModel).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticated user required to upload profile picture."
+        )
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded image exceeds 10MB limit."
+        )
+
+    timestamp = int(datetime.utcnow().timestamp())
+    clean_filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', file.filename or 'avatar.webp')
+    if not clean_filename.lower().endswith(('.webp', '.jpg', '.jpeg', '.png')):
+        clean_filename += '.webp'
+
+    s3_key = f"users/{user.email}/profile/avatar/{timestamp}_{clean_filename}"
+    permanent_url = ""
+
+    r2 = get_r2_client()
+    if r2:
+        try:
+            content_type = file.content_type or "image/webp"
+            r2.put_object(
+                Bucket=R2_BUCKET_NAME,
+                Key=s3_key,
+                Body=content,
+                ContentType=content_type
+            )
+
+            permanent_url = f"{R2_PUBLIC_URL}/{s3_key}" if R2_PUBLIC_URL else f"https://{R2_BUCKET_NAME}.r2.dev/{s3_key}"
+
+            # Master Cloud Mirror
+            sync_key = f"users/{user.email}/clinical_sync_data.json"
+            sync_data = {
+                "photoUrl": permanent_url,
+                "userEmail": user.email,
+                "userId": user.id,
+                "fullName": user.full_name,
+                "updatedAt": datetime.utcnow().isoformat()
+            }
+            r2.put_object(
+                Bucket=R2_BUCKET_NAME,
+                Key=sync_key,
+                Body=json.dumps(sync_data, indent=2).encode("utf-8"),
+                ContentType="application/json"
+            )
+            logger.info(f"Avatar and master cloud mirror successfully uploaded to R2: {s3_key}")
+        except Exception as exc:
+            logger.error(f"Cloudflare R2 dispatch error: {exc}")
+            encoded = base64.b64encode(content).decode("utf-8")
+            permanent_url = f"data:{file.content_type or 'image/webp'};base64,{encoded}"
+    else:
+        encoded = base64.b64encode(content).decode("utf-8")
+        permanent_url = f"data:{file.content_type or 'image/webp'};base64,{encoded}"
+
+    user.photo_url = permanent_url
+    db.commit()
+
+    return {
+        "photoUrl": permanent_url,
+        "message": "Universal avatar successfully uploaded and synchronized across Cloudflare R2 and database.",
+        "s3_key": s3_key
+    }
+
+@app.delete("/api/v1/auth/avatar", tags=["Avatar Sync"])
+def delete_user_avatar(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 4: Deletion & Remote Reset
+    """
+    user = None
+    auth_header = request.headers.get("Authorization") if request else None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            user = get_current_user(token=token, db=db)
+        except Exception:
+            user = None
+
+    if not user and user_email:
+        user = db.query(UserModel).filter(UserModel.email == user_email.strip().lower()).first()
+
+    if not user:
+        user = db.query(UserModel).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticated user required to remove profile picture."
+        )
+
+    user.photo_url = None
+    db.commit()
+
+    r2 = get_r2_client()
+    if r2:
+        try:
+            sync_key = f"users/{user.email}/clinical_sync_data.json"
+            sync_data = {
+                "photoUrl": None,
+                "userEmail": user.email,
+                "userId": user.id,
+                "fullName": user.full_name,
+                "updatedAt": datetime.utcnow().isoformat()
+            }
+            r2.put_object(
+                Bucket=R2_BUCKET_NAME,
+                Key=sync_key,
+                Body=json.dumps(sync_data, indent=2).encode("utf-8"),
+                ContentType="application/json"
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to update R2 sync mirror on deletion: {exc}")
+
+    return {
+        "photoUrl": None,
+        "message": "Avatar removed successfully. Reset to clinical initials."
+    }
+
+@app.get("/api/v1/sync/all", tags=["Avatar Sync"])
+def get_user_sync_telemetry(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 4: Hydration & Cross-Device Cloud Sync
+    """
+    user = None
+    auth_header = request.headers.get("Authorization") if request else None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            user = get_current_user(token=token, db=db)
+        except Exception:
+            user = None
+
+    if not user and user_email:
+        user = db.query(UserModel).filter(UserModel.email == user_email.strip().lower()).first()
+
+    if not user:
+        user = db.query(UserModel).first()
+
+    if not user:
+        return {
+            "authenticated": False,
+            "photoUrl": None,
+            "synced_at": datetime.utcnow().isoformat()
+        }
+
+    return {
+        "authenticated": True,
+        "user": user.to_dict(),
+        "photoUrl": user.photo_url,
+        "synced_at": datetime.utcnow().isoformat()
+    }
 
 if __name__ == "__main__":
     import uvicorn

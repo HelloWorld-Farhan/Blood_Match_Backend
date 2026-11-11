@@ -26,6 +26,9 @@ class UserModel(Base):
     # Adaptive Two-Factor Authentication
     is_2fa_enabled = Column(Boolean, default=False, nullable=False)
 
+    # Cloudflare R2 Universal Avatar Profile Picture
+    photo_url = Column(String(1024), nullable=True)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -34,6 +37,7 @@ class UserModel(Base):
             "phone": self.phone,
             "is_verified": self.is_verified,
             "is_2fa_enabled": self.is_2fa_enabled,
+            "photo_url": self.photo_url,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
             "failed_login_attempts": self.failed_login_attempts,
