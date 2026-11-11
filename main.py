@@ -75,6 +75,16 @@ from email_service import (
     send_2fa_login_email,
     send_welcome_email
 )
+from storage_service import (
+    process_avatar_image,
+    upload_user_asset,
+    delete_user_asset,
+    list_user_assets,
+    validate_tenant_access,
+    sanitize_user_email,
+    build_scoped_path,
+    MAX_FILE_SIZE_BYTES
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -1869,126 +1879,174 @@ def create_clinical_audit_log(
     return new_log.to_dict()
 
 # ==========================================
-# UNIVERSAL AVATAR & R2 CLOUD SYNC ENDPOINTS
+# CLOUDFLARE R2 USER-SCOPED STORAGE SERVICE
 # ==========================================
-@app.post("/api/v1/auth/avatar", tags=["Avatar Sync"])
+@app.post("/api/v1/storage/avatar", tags=["Cloud Storage Service"])
+@app.post("/api/v1/auth/avatar", tags=["Cloud Storage Service"])
 async def upload_user_avatar(
     file: UploadFile = File(...),
     user_email: Optional[str] = Form(None),
-    request: Request = None,
+    crop_x: Optional[int] = Form(None),
+    crop_y: Optional[int] = Form(None),
+    crop_width: Optional[int] = Form(None),
+    crop_height: Optional[int] = Form(None),
+    target_format: Optional[str] = Form("WEBP"),
+    current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Requirement 2: Cloudflare R2 Backend Upload & Isolation
-    - Uploads under users/{user_email}/profile/avatar/{timestamp}_{sanitized_filename}.webp
-    - Permanent CDN public URL
-    - Updates photo_url in users table
-    - Disaster-proof master mirror to users/{user_email}/clinical_sync_data.json
+    Requirement 3: Avatar Upload & Processing (Pillow Crop, WebP/JPEG Conversion, < 5MB)
+    Requirement 4: Multi-Tenant Protection (users can only modify within their user-scoped path prefix)
     """
-    user = None
-    auth_header = request.headers.get("Authorization") if request else None
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-        try:
-            user = get_current_user(token=token, db=db)
-        except Exception:
-            user = None
-
-    if not user and user_email:
-        user = db.query(UserModel).filter(UserModel.email == user_email.strip().lower()).first()
-
-    if not user:
-        user = db.query(UserModel).first()
-
-    if not user:
+    # Multi-Tenant Protection: Verify user is not impersonating or writing to another tenant's prefix
+    if user_email and not validate_tenant_access(current_user.email, user_email):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authenticated user required to upload profile picture."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Multi-tenant violation: Access denied to upload avatar for tenant {user_email}."
+        )
+
+    raw_bytes = await file.read()
+    if len(raw_bytes) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum allowed 5MB limit ({len(raw_bytes)} bytes)."
+        )
+
+    # Process and crop image using Pillow
+    try:
+        processed_bytes, mime_type, ext = process_avatar_image(
+            raw_bytes,
+            crop_x=crop_x,
+            crop_y=crop_y,
+            crop_width=crop_width,
+            crop_height=crop_height,
+            target_format=target_format or "WEBP"
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+    filename = f"avatar.{ext}"
+    try:
+        upload_meta = upload_user_asset(
+            content=processed_bytes,
+            authenticated_email=current_user.email,
+            category="profile",
+            filename=filename,
+            content_type=mime_type
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Storage upload failed: {exc}")
+
+    current_user.photo_url = upload_meta["public_url"]
+    db.commit()
+
+    # Continuous disaster recovery master mirror update
+    sync_user_state_to_r2(current_user.email, db)
+
+    return {
+        "photoUrl": upload_meta["public_url"],
+        "s3_key": upload_meta["s3_key"],
+        "size_bytes": upload_meta["size_bytes"],
+        "content_type": upload_meta["content_type"],
+        "message": "Avatar cropped, converted to WebP, and stored in user-scoped R2 directory."
+    }
+
+@app.post("/api/v1/storage/upload", tags=["Cloud Storage Service"])
+async def upload_scoped_asset(
+    file: UploadFile = File(...),
+    category: str = Form("documents"),
+    user_email: Optional[str] = Form(None),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 2 & 4: General Scoped Asset Upload with Multi-Tenant Guard
+    Path: users/{sanitized_user_email}/{category}/{timestamp}_{filename}
+    """
+    if user_email and not validate_tenant_access(current_user.email, user_email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Multi-tenant violation: Cannot store assets under another tenant prefix."
         )
 
     content = await file.read()
-    if len(content) > 10 * 1024 * 1024:
+    if len(content) > MAX_FILE_SIZE_BYTES:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded image exceeds 10MB limit."
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Uploaded asset exceeds 5MB limit ({len(content)} bytes)."
         )
 
-    timestamp = int(datetime.utcnow().timestamp())
-    clean_filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', file.filename or 'avatar.webp')
-    if not clean_filename.lower().endswith(('.webp', '.jpg', '.jpeg', '.png')):
-        clean_filename += '.webp'
+    filename = file.filename or "asset.bin"
+    content_type = file.content_type or "application/octet-stream"
 
-    s3_key = f"users/{user.email}/profile/avatar/{timestamp}_{clean_filename}"
-    permanent_url = ""
+    upload_result = upload_user_asset(
+        content=content,
+        authenticated_email=current_user.email,
+        category=category,
+        filename=filename,
+        content_type=content_type
+    )
 
-    r2 = get_r2_client()
-    if r2:
-        try:
-            content_type = file.content_type or "image/webp"
-            r2.put_object(
-                Bucket=R2_BUCKET_NAME,
-                Key=s3_key,
-                Body=content,
-                ContentType=content_type
-            )
+    return upload_result
 
-            permanent_url = f"{R2_PUBLIC_URL}/{s3_key}" if R2_PUBLIC_URL else f"https://{R2_BUCKET_NAME}.r2.dev/{s3_key}"
-            logger.info(f"Avatar successfully uploaded to R2: {s3_key}")
-        except Exception as exc:
-            logger.error(f"Cloudflare R2 dispatch error: {exc}")
-            encoded = base64.b64encode(content).decode("utf-8")
-            permanent_url = f"data:{file.content_type or 'image/webp'};base64,{encoded}"
-    else:
-        encoded = base64.b64encode(content).decode("utf-8")
-        permanent_url = f"data:{file.content_type or 'image/webp'};base64,{encoded}"
+@app.get("/api/v1/storage/files", tags=["Cloud Storage Service"])
+def list_user_scoped_files(
+    category: Optional[str] = Query(None),
+    user_email: Optional[str] = Query(None),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Lists files inside the authenticated user's isolated R2 path prefix.
+    """
+    if user_email and not validate_tenant_access(current_user.email, user_email):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to list another tenant's assets.")
 
-    user.photo_url = permanent_url
-    db.commit()
+    return list_user_assets(current_user.email, category)
 
-    # Master Cloud Mirror
-    sync_user_state_to_r2(user.email, db)
+@app.delete("/api/v1/storage/files", tags=["Cloud Storage Service"])
+def delete_user_scoped_file(
+    s3_key: str = Query(..., description="Full S3 key to delete"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 4: Multi-Tenant Deletion Guard
+    Validates that users can only delete files inside their own user email path prefix.
+    """
+    if not validate_tenant_access(current_user.email, s3_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Multi-tenant violation: Access denied. Cannot delete asset outside prefix users/{sanitize_user_email(current_user.email)}/."
+        )
 
+    deleted = delete_user_asset(s3_key, current_user.email)
     return {
-        "photoUrl": permanent_url,
-        "message": "Universal avatar successfully uploaded and synchronized across Cloudflare R2 and database.",
-        "s3_key": s3_key
+        "success": deleted,
+        "deleted_key": s3_key,
+        "message": "Asset deleted from user-scoped Cloudflare R2 path."
     }
 
-@app.delete("/api/v1/auth/avatar", tags=["Avatar Sync"])
+@app.delete("/api/v1/auth/avatar", tags=["Cloud Storage Service"])
 def delete_user_avatar(
     user_email: Optional[str] = Query(None),
-    request: Request = None,
+    current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Requirement 4: Deletion & Remote Reset
     """
-    user = None
-    auth_header = request.headers.get("Authorization") if request else None
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-        try:
-            user = get_current_user(token=token, db=db)
-        except Exception:
-            user = None
-
-    if not user and user_email:
-        user = db.query(UserModel).filter(UserModel.email == user_email.strip().lower()).first()
-
-    if not user:
-        user = db.query(UserModel).first()
-
-    if not user:
+    if user_email and not validate_tenant_access(current_user.email, user_email):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authenticated user required to remove profile picture."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Multi-tenant violation: Cannot delete another tenant's avatar."
         )
 
-    user.photo_url = None
+    current_user.photo_url = None
     db.commit()
 
     # Master Cloud Mirror update on deletion
-    sync_user_state_to_r2(user.email, db)
+    sync_user_state_to_r2(current_user.email, db)
 
     return {
         "photoUrl": None,
