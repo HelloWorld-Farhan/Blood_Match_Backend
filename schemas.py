@@ -7,6 +7,7 @@ class InventoryUpdateRequest(BaseModel):
     temperature_celsius: Optional[float] = None
 
 class DonorCreateRequest(BaseModel):
+    user_email: Optional[str] = None
     name: str = Field(..., min_length=2)
     blood_type: str = Field(..., min_length=1, max_length=5)
     phone: str = Field(..., min_length=5)
@@ -17,6 +18,7 @@ class DonorCreateRequest(BaseModel):
     is_available: bool = True
 
 class EmergencyCreateRequest(BaseModel):
+    user_email: Optional[str] = None
     patient_name: str = Field(..., min_length=2)
     hospital: str = Field(..., min_length=2)
     blood_type: str = Field(..., min_length=1, max_length=5)
@@ -87,3 +89,23 @@ class AuthTokenResponse(BaseModel):
     token_type: str = "bearer"
     is_verified: bool
     user: Dict[str, Any]
+
+class ClinicalCheckCreateRequest(BaseModel):
+    patient_name: str = Field(..., min_length=1, max_length=100)
+    patient_id: Optional[str] = None
+    blood_type: str = Field(..., min_length=2, max_length=10)
+    check_type: str = Field("compatibility", max_length=50)
+    status: str = Field("passed", max_length=20)
+    notes: Optional[str] = None
+
+class ClinicalDocumentCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=150)
+    doc_type: str = Field("lab_report", max_length=50)
+    file_url: str = Field(..., min_length=5, max_length=1024)
+    file_size_kb: Optional[float] = 0.0
+
+class ClinicalAuditLogCreateRequest(BaseModel):
+    action: str = Field(..., min_length=1, max_length=100)
+    entity_type: str = Field(..., min_length=1, max_length=50)
+    entity_id: Optional[str] = None
+    details: Optional[str] = None

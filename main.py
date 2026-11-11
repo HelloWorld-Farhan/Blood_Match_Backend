@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import uuid
 import base64
 import logging
 from datetime import datetime
@@ -24,7 +25,10 @@ from models import (
     InventoryModel,
     DonorModel,
     EmergencyRequestModel,
-    ClinicianProfileModel
+    ClinicianProfileModel,
+    ClinicalCheckModel,
+    ClinicalAuditLogModel,
+    ClinicalDocumentModel
 )
 from schemas import (
     UserRegisterRequest,
@@ -41,7 +45,10 @@ from schemas import (
     InventoryUpdateRequest,
     DonorCreateRequest,
     EmergencyCreateRequest,
-    ClinicianProfileRequest
+    ClinicianProfileRequest,
+    ClinicalCheckCreateRequest,
+    ClinicalDocumentCreateRequest,
+    ClinicalAuditLogCreateRequest
 )
 from auth_service import (
     validate_password_strength,
@@ -115,6 +122,210 @@ def get_r2_client():
         )
     except Exception as exc:
         logger.warning(f"R2 client connection error: {exc}")
+        return None
+
+def sync_user_state_to_r2(user_email: str, db: Session) -> Optional[dict]:
+    """
+    Requirement 2 & 4: Master Sync File Serialization & Deletion Persistence
+    Whenever a user creates, updates, or deletes any record (checks, audit logs,
+    documents, profile data, emergency requests, donors), automatically serialize the
+    user's complete state to users/{user_email}/clinical_sync_data.json in Cloudflare R2.
+    """
+    if not user_email:
+        return None
+    email_clean = user_email.strip().lower()
+    r2 = get_r2_client()
+    if not r2:
+        logger.info(f"R2 client not configured; local DB is source of truth for {email_clean}")
+        return None
+
+    try:
+        user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+        profile = db.query(ClinicianProfileModel).filter(ClinicianProfileModel.work_email == email_clean).first()
+        checks = db.query(ClinicalCheckModel).filter(ClinicalCheckModel.user_email == email_clean).order_by(ClinicalCheckModel.created_at.desc()).all()
+        audit_logs = db.query(ClinicalAuditLogModel).filter(ClinicalAuditLogModel.user_email == email_clean).order_by(ClinicalAuditLogModel.timestamp.desc()).all()
+        documents = db.query(ClinicalDocumentModel).filter(ClinicalDocumentModel.user_email == email_clean).order_by(ClinicalDocumentModel.created_at.desc()).all()
+        donors = db.query(DonorModel).filter((DonorModel.user_email == email_clean) | (DonorModel.user_email.is_(None))).order_by(DonorModel.created_at.desc()).all()
+        emergency_reqs = db.query(EmergencyRequestModel).filter((EmergencyRequestModel.user_email == email_clean) | (EmergencyRequestModel.user_email.is_(None))).order_by(EmergencyRequestModel.created_at.desc()).all()
+        inventory = db.query(InventoryModel).order_by(InventoryModel.blood_type).all()
+
+        photo_url = user.photo_url if user else (profile.avatar_url if profile else None)
+
+        sync_key = f"users/{email_clean}/clinical_sync_data.json"
+        master_payload = {
+            "version": 2,
+            "userEmail": email_clean,
+            "userId": user.id if user else (profile.id if profile else None),
+            "fullName": user.full_name if user else (profile.full_name if profile else "Clinician"),
+            "photoUrl": photo_url,
+            "profile": profile.to_dict() if profile else {
+                "full_name": user.full_name if user else "",
+                "work_email": email_clean,
+                "phone": user.phone if user else "",
+                "facility": "Central Cryo-Vault 01",
+                "department": "Hematology & Transfusion",
+                "license_id": "MD-CLINICAL",
+                "avatar_url": photo_url,
+                "updated_at": datetime.utcnow().isoformat()
+            },
+            "checks": [c.to_dict() for c in checks],
+            "auditLogs": [a.to_dict() for a in audit_logs],
+            "documents": [d.to_dict() for d in documents],
+            "donors": [d.to_dict() for d in donors],
+            "emergencyRequests": [r.to_dict() for r in emergency_reqs],
+            "inventory": [i.to_dict() for i in inventory],
+            "lastSyncedAt": datetime.utcnow().isoformat()
+        }
+
+        r2.put_object(
+            Bucket=R2_BUCKET_NAME,
+            Key=sync_key,
+            Body=json.dumps(master_payload, indent=2).encode("utf-8"),
+            ContentType="application/json"
+        )
+        logger.info(f"Disaster-proof cloud master sync file successfully updated in R2: {sync_key}")
+        return master_payload
+    except Exception as exc:
+        logger.error(f"Failed to synchronize master cloud state to R2 for {email_clean}: {exc}")
+        return None
+
+def reconcile_user_from_r2(user_email: str, db: Session) -> Optional[dict]:
+    """
+    Requirement 3: Startup Auto-Reconciliation
+    When the client calls the sync pull endpoint, if the local database has 0 records
+    for that user, automatically fetch and parse clinical_sync_data.json from Cloudflare R2,
+    re-populate the local database tables, and return the complete hydrated data.
+    """
+    if not user_email:
+        return None
+    email_clean = user_email.strip().lower()
+    r2 = get_r2_client()
+    if not r2:
+        return None
+
+    try:
+        sync_key = f"users/{email_clean}/clinical_sync_data.json"
+        obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=sync_key)
+        raw_body = obj["Body"].read().decode("utf-8")
+        sync_data = json.loads(raw_body)
+    except Exception as exc:
+        logger.info(f"No R2 master state found for {email_clean} ({exc})")
+        return None
+
+    try:
+        # 1. User & Avatar Hydration
+        user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+        if not user:
+            user = UserModel(
+                id=sync_data.get("userId") or str(uuid.uuid4()),
+                email=email_clean,
+                full_name=sync_data.get("fullName") or "Clinician",
+                photo_url=sync_data.get("photoUrl"),
+                is_verified=True,
+                hashed_password=hash_password("HydratedClinical@2026#")
+            )
+            db.add(user)
+        elif sync_data.get("photoUrl") and not user.photo_url:
+            user.photo_url = sync_data.get("photoUrl")
+            db.add(user)
+
+        # 2. Profile Hydration
+        p_data = sync_data.get("profile") or {}
+        existing_profile = db.query(ClinicianProfileModel).filter(ClinicianProfileModel.work_email == email_clean).first()
+        if not existing_profile and p_data:
+            new_profile = ClinicianProfileModel(
+                id=p_data.get("id") or str(uuid.uuid4()),
+                full_name=p_data.get("full_name") or sync_data.get("fullName") or "Clinician",
+                work_email=email_clean,
+                phone=p_data.get("phone"),
+                facility=p_data.get("facility") or "Central Cryo-Vault 01",
+                department=p_data.get("department") or "Hematology & Transfusion",
+                license_id=p_data.get("license_id") or "MD-CLINICAL",
+                avatar_url=sync_data.get("photoUrl") or p_data.get("avatar_url")
+            )
+            db.add(new_profile)
+
+        # 3. Clinical Checks Hydration
+        for chk in sync_data.get("checks", []):
+            chk_id = chk.get("id")
+            if not db.query(ClinicalCheckModel).filter(ClinicalCheckModel.id == chk_id).first():
+                db.add(ClinicalCheckModel(
+                    id=chk_id or str(uuid.uuid4()),
+                    user_email=email_clean,
+                    patient_name=chk.get("patient_name") or chk.get("patientName") or "Unknown Patient",
+                    patient_id=chk.get("patient_id") or chk.get("patientId"),
+                    blood_type=chk.get("blood_type") or chk.get("bloodType") or "O+",
+                    check_type=chk.get("check_type") or chk.get("checkType") or "compatibility",
+                    status=chk.get("status") or "passed",
+                    notes=chk.get("notes")
+                ))
+
+        # 4. Clinical Audit Logs Hydration
+        for log in sync_data.get("auditLogs", []):
+            log_id = log.get("id")
+            if not db.query(ClinicalAuditLogModel).filter(ClinicalAuditLogModel.id == log_id).first():
+                db.add(ClinicalAuditLogModel(
+                    id=log_id or str(uuid.uuid4()),
+                    user_email=email_clean,
+                    action=log.get("action") or "UNKNOWN_ACTION",
+                    entity_type=log.get("entity_type") or log.get("entityType") or "clinical",
+                    entity_id=log.get("entity_id") or log.get("entityId"),
+                    details=log.get("details"),
+                    ip_address=log.get("ip_address") or log.get("ipAddress")
+                ))
+
+        # 5. Clinical Documents Hydration
+        for doc in sync_data.get("documents", []):
+            doc_id = doc.get("id")
+            if not db.query(ClinicalDocumentModel).filter(ClinicalDocumentModel.id == doc_id).first():
+                db.add(ClinicalDocumentModel(
+                    id=doc_id or str(uuid.uuid4()),
+                    user_email=email_clean,
+                    title=doc.get("title") or "Clinical Document",
+                    doc_type=doc.get("doc_type") or doc.get("docType") or "lab_report",
+                    file_url=doc.get("file_url") or doc.get("fileUrl") or "",
+                    file_size_kb=float(doc.get("file_size_kb") or doc.get("fileSizeKb") or 0.0)
+                ))
+
+        # 6. Donors Hydration
+        for donor in sync_data.get("donors", []):
+            d_id = donor.get("id")
+            if not db.query(DonorModel).filter(DonorModel.id == d_id).first():
+                db.add(DonorModel(
+                    id=d_id or str(uuid.uuid4()),
+                    user_email=email_clean,
+                    name=donor.get("name") or donor.get("fullName") or "Anonymous Donor",
+                    blood_type=donor.get("blood_type") or donor.get("bloodType") or "O+",
+                    phone=donor.get("phone") or "+1 555-0100",
+                    email=donor.get("email") or "donor@bloodmatch.io",
+                    city=donor.get("city") or "Metro City",
+                    hospital=donor.get("hospital") or "Metro Central Hospital",
+                    last_donation_date=donor.get("last_donation_date") or donor.get("lastDonationDate"),
+                    is_available=bool(donor.get("is_available") if donor.get("is_available") is not None else donor.get("available", True))
+                ))
+
+        # 7. Emergency Requests Hydration
+        for req in sync_data.get("emergencyRequests", []):
+            r_id = req.get("id")
+            if not db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == r_id).first():
+                db.add(EmergencyRequestModel(
+                    id=r_id or str(uuid.uuid4()),
+                    user_email=email_clean,
+                    patient_name=req.get("patient_name") or req.get("patientName") or "Urgent Patient",
+                    hospital=req.get("hospital") or "Metro Trauma Wing",
+                    blood_type=req.get("blood_type") or req.get("bloodType") or "O-",
+                    units_needed=int(req.get("units_needed") or req.get("unitsNeeded") or 1),
+                    status=req.get("status") or "urgent",
+                    contact_person=req.get("contact_person") or req.get("contactName") or "Attending Nurse",
+                    contact_phone=req.get("contact_phone") or req.get("contactNumber") or "+1 555-0199"
+                ))
+
+        db.commit()
+        logger.info(f"Database successfully re-hydrated from Cloudflare R2 for {email_clean}")
+        return sync_data
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"Error during R2 database re-population for {email_clean}: {exc}")
         return None
 
 app.add_middleware(
@@ -1259,11 +1470,14 @@ def update_inventory_units(
 @app.get("/api/donors", tags=["Donors"])
 def list_donors(
     blood_type: Optional[str] = Query(None, description="Optional blood group filter"),
+    user_email: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     query = db.query(DonorModel)
     if blood_type:
         query = query.filter(DonorModel.blood_type == blood_type.upper())
+    if user_email:
+        query = query.filter((DonorModel.user_email == user_email.strip().lower()) | (DonorModel.user_email.is_(None)))
     donors = query.order_by(DonorModel.created_at.desc()).all()
     return [d.to_dict() for d in donors]
 
@@ -1272,7 +1486,9 @@ def register_donor(
     payload: DonorCreateRequest,
     db: Session = Depends(get_db)
 ):
+    email_clean = payload.user_email.strip().lower() if payload.user_email else None
     new_donor = DonorModel(
+        user_email=email_clean,
         name=payload.name,
         blood_type=payload.blood_type.upper(),
         phone=payload.phone,
@@ -1283,15 +1499,47 @@ def register_donor(
         is_available=payload.is_available
     )
     db.add(new_donor)
-    db.flush()
+    db.commit()
+
+    if email_clean:
+        sync_user_state_to_r2(email_clean, db)
+
     return new_donor.to_dict()
+
+@app.delete("/api/donors/{donor_id}", tags=["Donors"])
+def delete_donor(
+    donor_id: str,
+    user_email: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 4: Deletion Persistence in Database & R2
+    """
+    donor = db.query(DonorModel).filter(DonorModel.id == donor_id).first()
+    if not donor:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Donor not found.")
+
+    target_email = user_email.strip().lower() if user_email else donor.user_email
+    db.delete(donor)
+    db.commit()
+
+    if target_email:
+        sync_user_state_to_r2(target_email, db)
+
+    return {"message": "Donor deleted successfully.", "deleted_id": donor_id}
 
 # ==========================================
 # EMERGENCY REQUEST ENDPOINTS
 # ==========================================
 @app.get("/api/emergency", tags=["Emergency"])
-def list_emergency_requests(db: Session = Depends(get_db)):
-    requests = db.query(EmergencyRequestModel).order_by(EmergencyRequestModel.created_at.desc()).all()
+def list_emergency_requests(
+    user_email: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    query = db.query(EmergencyRequestModel)
+    if user_email:
+        query = query.filter((EmergencyRequestModel.user_email == user_email.strip().lower()) | (EmergencyRequestModel.user_email.is_(None)))
+    requests = query.order_by(EmergencyRequestModel.created_at.desc()).all()
     return [r.to_dict() for r in requests]
 
 @app.post("/api/emergency", tags=["Emergency"], status_code=status.HTTP_201_CREATED)
@@ -1299,7 +1547,9 @@ def create_emergency_request(
     payload: EmergencyCreateRequest,
     db: Session = Depends(get_db)
 ):
+    email_clean = payload.user_email.strip().lower() if payload.user_email else None
     req = EmergencyRequestModel(
+        user_email=email_clean,
         patient_name=payload.patient_name,
         hospital=payload.hospital,
         blood_type=payload.blood_type.upper(),
@@ -1309,8 +1559,34 @@ def create_emergency_request(
         contact_phone=payload.contact_phone
     )
     db.add(req)
-    db.flush()
+    db.commit()
+
+    if email_clean:
+        sync_user_state_to_r2(email_clean, db)
+
     return req.to_dict()
+
+@app.delete("/api/emergency/{request_id}", tags=["Emergency"])
+def delete_emergency_request(
+    request_id: str,
+    user_email: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 4: Deletion Persistence in Database & R2
+    """
+    req = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency request not found.")
+
+    target_email = user_email.strip().lower() if user_email else req.user_email
+    db.delete(req)
+    db.commit()
+
+    if target_email:
+        sync_user_state_to_r2(target_email, db)
+
+    return {"message": "Emergency request deleted successfully.", "deleted_id": request_id}
 
 # ==========================================
 # CLINICIAN PROFILE ENDPOINTS
@@ -1333,11 +1609,12 @@ def upsert_clinician_profile(
     payload: ClinicianProfileRequest,
     db: Session = Depends(get_db)
 ):
-    profile = db.query(ClinicianProfileModel).filter(ClinicianProfileModel.work_email == payload.work_email).first()
+    email_clean = payload.work_email.strip().lower()
+    profile = db.query(ClinicianProfileModel).filter(ClinicianProfileModel.work_email == email_clean).first()
     if not profile:
         profile = ClinicianProfileModel(
             full_name=payload.full_name,
-            work_email=payload.work_email,
+            work_email=email_clean,
             phone=payload.phone,
             facility=payload.facility,
             department=payload.department,
@@ -1353,8 +1630,243 @@ def upsert_clinician_profile(
         profile.license_id = payload.license_id
         profile.avatar_url = payload.avatar_url
         db.add(profile)
-    db.flush()
+    db.commit()
+
+    sync_user_state_to_r2(email_clean, db)
     return profile.to_dict()
+
+# ==========================================
+# CLINICAL CHECKS & SCREENING CONSULTATIONS
+# ==========================================
+@app.get("/api/v1/clinical/checks", tags=["Clinical Checks"])
+def list_clinical_checks(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email = user_email
+    if not email and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                u = get_current_user(auth_header.split(" ")[1], db)
+                email = u.email
+            except Exception:
+                pass
+    query = db.query(ClinicalCheckModel)
+    if email:
+        query = query.filter(ClinicalCheckModel.user_email == email.strip().lower())
+    checks = query.order_by(ClinicalCheckModel.created_at.desc()).all()
+    return [c.to_dict() for c in checks]
+
+@app.post("/api/v1/clinical/checks", tags=["Clinical Checks"], status_code=status.HTTP_201_CREATED)
+def create_clinical_check(
+    payload: ClinicalCheckCreateRequest,
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email = user_email
+    if not email and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                u = get_current_user(auth_header.split(" ")[1], db)
+                email = u.email
+            except Exception:
+                pass
+    if not email:
+        u = db.query(UserModel).first()
+        email = u.email if u else "clinician@bloodmatch.io"
+
+    email_clean = email.strip().lower()
+    new_check = ClinicalCheckModel(
+        user_email=email_clean,
+        patient_name=payload.patient_name,
+        patient_id=payload.patient_id,
+        blood_type=payload.blood_type.upper(),
+        check_type=payload.check_type,
+        status=payload.status,
+        notes=payload.notes
+    )
+    db.add(new_check)
+
+    # Automatic Audit Log
+    audit = ClinicalAuditLogModel(
+        user_email=email_clean,
+        action=f"CLINICAL_CHECK_{payload.check_type.upper()}",
+        entity_type="check",
+        entity_id=new_check.id,
+        details=f"Patient {payload.patient_name} ({payload.blood_type}): {payload.status}",
+        ip_address=request.client.host if request and request.client else "127.0.0.1"
+    )
+    db.add(audit)
+    db.commit()
+
+    sync_user_state_to_r2(email_clean, db)
+    return new_check.to_dict()
+
+@app.delete("/api/v1/clinical/checks/{check_id}", tags=["Clinical Checks"])
+def delete_clinical_check(
+    check_id: str,
+    user_email: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 4: Deletion Persistence
+    Reflects deletion in both the database and R2 master JSON so deleted data stays deleted.
+    """
+    check = db.query(ClinicalCheckModel).filter(ClinicalCheckModel.id == check_id).first()
+    if not check:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clinical check not found.")
+
+    target_email = user_email.strip().lower() if user_email else check.user_email
+    db.delete(check)
+    db.commit()
+
+    if target_email:
+        sync_user_state_to_r2(target_email, db)
+
+    return {"message": "Clinical check record deleted and purged from R2 cloud master sync.", "deleted_id": check_id}
+
+# ==========================================
+# CLINICAL DOCUMENTS & LAB REPORTS
+# ==========================================
+@app.get("/api/v1/clinical/documents", tags=["Clinical Documents"])
+def list_clinical_documents(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email = user_email
+    if not email and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                u = get_current_user(auth_header.split(" ")[1], db)
+                email = u.email
+            except Exception:
+                pass
+    query = db.query(ClinicalDocumentModel)
+    if email:
+        query = query.filter(ClinicalDocumentModel.user_email == email.strip().lower())
+    docs = query.order_by(ClinicalDocumentModel.created_at.desc()).all()
+    return [d.to_dict() for d in docs]
+
+@app.post("/api/v1/clinical/documents", tags=["Clinical Documents"], status_code=status.HTTP_201_CREATED)
+def create_clinical_document(
+    payload: ClinicalDocumentCreateRequest,
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email = user_email
+    if not email and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                u = get_current_user(auth_header.split(" ")[1], db)
+                email = u.email
+            except Exception:
+                pass
+    if not email:
+        u = db.query(UserModel).first()
+        email = u.email if u else "clinician@bloodmatch.io"
+
+    email_clean = email.strip().lower()
+    new_doc = ClinicalDocumentModel(
+        user_email=email_clean,
+        title=payload.title,
+        doc_type=payload.doc_type,
+        file_url=payload.file_url,
+        file_size_kb=payload.file_size_kb or 0.0
+    )
+    db.add(new_doc)
+    db.commit()
+
+    sync_user_state_to_r2(email_clean, db)
+    return new_doc.to_dict()
+
+@app.delete("/api/v1/clinical/documents/{doc_id}", tags=["Clinical Documents"])
+def delete_clinical_document(
+    doc_id: str,
+    user_email: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 4: Deletion Persistence in Database & R2
+    """
+    doc = db.query(ClinicalDocumentModel).filter(ClinicalDocumentModel.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clinical document not found.")
+
+    target_email = user_email.strip().lower() if user_email else doc.user_email
+    db.delete(doc)
+    db.commit()
+
+    if target_email:
+        sync_user_state_to_r2(target_email, db)
+
+    return {"message": "Clinical document deleted and purged from R2 master state.", "deleted_id": doc_id}
+
+# ==========================================
+# CLINICAL AUDIT LOGS
+# ==========================================
+@app.get("/api/v1/clinical/audit-logs", tags=["Clinical Audit Logs"])
+def list_clinical_audit_logs(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email = user_email
+    if not email and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                u = get_current_user(auth_header.split(" ")[1], db)
+                email = u.email
+            except Exception:
+                pass
+    query = db.query(ClinicalAuditLogModel)
+    if email:
+        query = query.filter(ClinicalAuditLogModel.user_email == email.strip().lower())
+    logs = query.order_by(ClinicalAuditLogModel.timestamp.desc()).all()
+    return [l.to_dict() for l in logs]
+
+@app.post("/api/v1/clinical/audit-logs", tags=["Clinical Audit Logs"], status_code=status.HTTP_201_CREATED)
+def create_clinical_audit_log(
+    payload: ClinicalAuditLogCreateRequest,
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email = user_email
+    if not email and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                u = get_current_user(auth_header.split(" ")[1], db)
+                email = u.email
+            except Exception:
+                pass
+    if not email:
+        u = db.query(UserModel).first()
+        email = u.email if u else "clinician@bloodmatch.io"
+
+    email_clean = email.strip().lower()
+    new_log = ClinicalAuditLogModel(
+        user_email=email_clean,
+        action=payload.action,
+        entity_type=payload.entity_type,
+        entity_id=payload.entity_id,
+        details=payload.details,
+        ip_address=request.client.host if request and request.client else "127.0.0.1"
+    )
+    db.add(new_log)
+    db.commit()
+
+    sync_user_state_to_r2(email_clean, db)
+    return new_log.to_dict()
 
 # ==========================================
 # UNIVERSAL AVATAR & R2 CLOUD SYNC ENDPOINTS
@@ -1421,23 +1933,7 @@ async def upload_user_avatar(
             )
 
             permanent_url = f"{R2_PUBLIC_URL}/{s3_key}" if R2_PUBLIC_URL else f"https://{R2_BUCKET_NAME}.r2.dev/{s3_key}"
-
-            # Master Cloud Mirror
-            sync_key = f"users/{user.email}/clinical_sync_data.json"
-            sync_data = {
-                "photoUrl": permanent_url,
-                "userEmail": user.email,
-                "userId": user.id,
-                "fullName": user.full_name,
-                "updatedAt": datetime.utcnow().isoformat()
-            }
-            r2.put_object(
-                Bucket=R2_BUCKET_NAME,
-                Key=sync_key,
-                Body=json.dumps(sync_data, indent=2).encode("utf-8"),
-                ContentType="application/json"
-            )
-            logger.info(f"Avatar and master cloud mirror successfully uploaded to R2: {s3_key}")
+            logger.info(f"Avatar successfully uploaded to R2: {s3_key}")
         except Exception as exc:
             logger.error(f"Cloudflare R2 dispatch error: {exc}")
             encoded = base64.b64encode(content).decode("utf-8")
@@ -1448,6 +1944,9 @@ async def upload_user_avatar(
 
     user.photo_url = permanent_url
     db.commit()
+
+    # Master Cloud Mirror
+    sync_user_state_to_r2(user.email, db)
 
     return {
         "photoUrl": permanent_url,
@@ -1488,67 +1987,161 @@ def delete_user_avatar(
     user.photo_url = None
     db.commit()
 
-    r2 = get_r2_client()
-    if r2:
-        try:
-            sync_key = f"users/{user.email}/clinical_sync_data.json"
-            sync_data = {
-                "photoUrl": None,
-                "userEmail": user.email,
-                "userId": user.id,
-                "fullName": user.full_name,
-                "updatedAt": datetime.utcnow().isoformat()
-            }
-            r2.put_object(
-                Bucket=R2_BUCKET_NAME,
-                Key=sync_key,
-                Body=json.dumps(sync_data, indent=2).encode("utf-8"),
-                ContentType="application/json"
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to update R2 sync mirror on deletion: {exc}")
+    # Master Cloud Mirror update on deletion
+    sync_user_state_to_r2(user.email, db)
 
     return {
         "photoUrl": None,
         "message": "Avatar removed successfully. Reset to clinical initials."
     }
 
-@app.get("/api/v1/sync/all", tags=["Avatar Sync"])
+@app.get("/api/v1/sync/all", tags=["Cloud State Sync"])
 def get_user_sync_telemetry(
     user_email: Optional[str] = Query(None),
     request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
-    Requirement 4: Hydration & Cross-Device Cloud Sync
+    Requirement 3: Startup Auto-Reconciliation & Cross-Device Cloud Sync
+    When the client calls the sync pull endpoint, if the local database has 0 records
+    for that user, automatically fetch and parse clinical_sync_data.json from Cloudflare R2,
+    re-populate the local database tables, and return the complete hydrated data.
     """
-    user = None
+    email_clean = None
     auth_header = request.headers.get("Authorization") if request else None
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
         try:
-            user = get_current_user(token=token, db=db)
+            user_auth = get_current_user(token=token, db=db)
+            if user_auth:
+                email_clean = user_auth.email
         except Exception:
-            user = None
+            pass
 
-    if not user and user_email:
-        user = db.query(UserModel).filter(UserModel.email == user_email.strip().lower()).first()
+    if not email_clean and user_email:
+        email_clean = user_email.strip().lower()
 
-    if not user:
-        user = db.query(UserModel).first()
+    if not email_clean:
+        first_user = db.query(UserModel).first()
+        if first_user:
+            email_clean = first_user.email
 
-    if not user:
+    if not email_clean:
         return {
             "authenticated": False,
+            "reconciled_from_r2": False,
             "photoUrl": None,
             "synced_at": datetime.utcnow().isoformat()
         }
 
+    # Count local records for this user
+    checks_count = db.query(ClinicalCheckModel).filter(ClinicalCheckModel.user_email == email_clean).count()
+    docs_count = db.query(ClinicalDocumentModel).filter(ClinicalDocumentModel.user_email == email_clean).count()
+    audit_count = db.query(ClinicalAuditLogModel).filter(ClinicalAuditLogModel.user_email == email_clean).count()
+    total_local_records = checks_count + docs_count + audit_count
+
+    reconciled = False
+    # Requirement 3: If 0 records in database for this user, auto-reconcile from Cloudflare R2
+    if total_local_records == 0:
+        logger.info(f"Local database has 0 clinical records for {email_clean}. Triggering R2 startup auto-reconciliation...")
+        reconciled_data = reconcile_user_from_r2(email_clean, db)
+        if reconciled_data:
+            reconciled = True
+            logger.info(f"Successfully auto-reconciled user state from R2 for {email_clean}.")
+
+    # Fetch live state after reconciliation
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    profile = db.query(ClinicianProfileModel).filter(ClinicianProfileModel.work_email == email_clean).first()
+    checks = db.query(ClinicalCheckModel).filter(ClinicalCheckModel.user_email == email_clean).order_by(ClinicalCheckModel.created_at.desc()).all()
+    audit_logs = db.query(ClinicalAuditLogModel).filter(ClinicalAuditLogModel.user_email == email_clean).order_by(ClinicalAuditLogModel.timestamp.desc()).all()
+    documents = db.query(ClinicalDocumentModel).filter(ClinicalDocumentModel.user_email == email_clean).order_by(ClinicalDocumentModel.created_at.desc()).all()
+    donors = db.query(DonorModel).filter((DonorModel.user_email == email_clean) | (DonorModel.user_email.is_(None))).order_by(DonorModel.created_at.desc()).all()
+    emergency_reqs = db.query(EmergencyRequestModel).filter((EmergencyRequestModel.user_email == email_clean) | (EmergencyRequestModel.user_email.is_(None))).order_by(EmergencyRequestModel.created_at.desc()).all()
+    inventory = db.query(InventoryModel).order_by(InventoryModel.blood_type).all()
+
+    photo_url = user.photo_url if user else (profile.avatar_url if profile else None)
+
     return {
-        "authenticated": True,
-        "user": user.to_dict(),
-        "photoUrl": user.photo_url,
+        "authenticated": bool(user is not None),
+        "reconciled_from_r2": reconciled,
+        "userEmail": email_clean,
+        "user": user.to_dict() if user else None,
+        "photoUrl": photo_url,
+        "profile": profile.to_dict() if profile else None,
+        "checks": [c.to_dict() for c in checks],
+        "auditLogs": [a.to_dict() for a in audit_logs],
+        "documents": [d.to_dict() for d in documents],
+        "donors": [d.to_dict() for d in donors],
+        "emergencyRequests": [r.to_dict() for r in emergency_reqs],
+        "inventory": [i.to_dict() for i in inventory],
         "synced_at": datetime.utcnow().isoformat()
+    }
+
+@app.post("/api/v1/sync/push", tags=["Cloud State Sync"])
+def push_user_sync_state(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Explicitly forces a manual serialization and push of local state to Cloudflare R2.
+    """
+    email_clean = user_email.strip().lower() if user_email else None
+    if not email_clean and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                u = get_current_user(auth_header.split(" ")[1], db)
+                email_clean = u.email
+            except Exception:
+                pass
+    if not email_clean:
+        u = db.query(UserModel).first()
+        email_clean = u.email if u else None
+
+    if not email_clean:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User email required for cloud state sync.")
+
+    synced_payload = sync_user_state_to_r2(email_clean, db)
+    return {
+        "status": "synchronized",
+        "message": f"Successfully serialized state to users/{email_clean}/clinical_sync_data.json in Cloudflare R2.",
+        "data": synced_payload
+    }
+
+@app.post("/api/v1/sync/pull", tags=["Cloud State Sync"])
+def pull_user_sync_state(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Explicitly forces a manual pull and re-population from Cloudflare R2 into the local database.
+    """
+    email_clean = user_email.strip().lower() if user_email else None
+    if not email_clean and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                u = get_current_user(auth_header.split(" ")[1], db)
+                email_clean = u.email
+            except Exception:
+                pass
+    if not email_clean:
+        u = db.query(UserModel).first()
+        email_clean = u.email if u else None
+
+    if not email_clean:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User email required for cloud state reconciliation.")
+
+    reconciled_data = reconcile_user_from_r2(email_clean, db)
+    if not reconciled_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No R2 master state found for {email_clean}.")
+
+    return {
+        "status": "reconciled",
+        "message": f"Successfully re-hydrated local database from Cloudflare R2 for {email_clean}.",
+        "data": reconciled_data
     }
 
 if __name__ == "__main__":

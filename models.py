@@ -167,6 +167,7 @@ class DonorModel(Base):
     __tablename__ = "donors"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_email = Column(String(120), nullable=True, index=True)
     name = Column(String(100), nullable=False)
     blood_type = Column(String(10), nullable=False, index=True)
     phone = Column(String(30), nullable=False)
@@ -180,6 +181,7 @@ class DonorModel(Base):
     def to_dict(self):
         return {
             "id": self.id,
+            "user_email": self.user_email,
             "name": self.name,
             "blood_type": self.blood_type,
             "phone": self.phone,
@@ -195,6 +197,7 @@ class EmergencyRequestModel(Base):
     __tablename__ = "emergency_requests"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_email = Column(String(120), nullable=True, index=True)
     patient_name = Column(String(100), nullable=False)
     hospital = Column(String(120), nullable=False)
     blood_type = Column(String(10), nullable=False, index=True)
@@ -207,6 +210,7 @@ class EmergencyRequestModel(Base):
     def to_dict(self):
         return {
             "id": self.id,
+            "user_email": self.user_email,
             "patient_name": self.patient_name,
             "hospital": self.hospital,
             "blood_type": self.blood_type,
@@ -241,4 +245,76 @@ class ClinicianProfileModel(Base):
             "license_id": self.license_id,
             "avatar_url": self.avatar_url,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class ClinicalCheckModel(Base):
+    __tablename__ = "clinical_checks"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_email = Column(String(120), index=True, nullable=False)
+    patient_name = Column(String(100), nullable=False)
+    patient_id = Column(String(50), nullable=True)
+    blood_type = Column(String(10), nullable=False)
+    check_type = Column(String(50), default="compatibility") # "compatibility" | "crossmatch" | "antibody_screen"
+    status = Column(String(20), default="passed") # "passed" | "flagged" | "inconclusive"
+    notes = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_email": self.user_email,
+            "patient_name": self.patient_name,
+            "patient_id": self.patient_id,
+            "blood_type": self.blood_type,
+            "check_type": self.check_type,
+            "status": self.status,
+            "notes": self.notes,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
+
+class ClinicalAuditLogModel(Base):
+    __tablename__ = "clinical_audit_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_email = Column(String(120), index=True, nullable=False)
+    action = Column(String(100), nullable=False)
+    entity_type = Column(String(50), nullable=False)
+    entity_id = Column(String(50), nullable=True)
+    details = Column(String(1024), nullable=True)
+    ip_address = Column(String(50), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_email": self.user_email,
+            "action": self.action,
+            "entity_type": self.entity_type,
+            "entity_id": self.entity_id,
+            "details": self.details,
+            "ip_address": self.ip_address,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None
+        }
+
+class ClinicalDocumentModel(Base):
+    __tablename__ = "clinical_documents"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_email = Column(String(120), index=True, nullable=False)
+    title = Column(String(150), nullable=False)
+    doc_type = Column(String(50), default="lab_report") # "crossmatch_certificate" | "lab_report" | "consent_form"
+    file_url = Column(String(1024), nullable=False)
+    file_size_kb = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_email": self.user_email,
+            "title": self.title,
+            "doc_type": self.doc_type,
+            "file_url": self.file_url,
+            "file_size_kb": self.file_size_kb,
+            "created_at": self.created_at.isoformat() if self.created_at else None
         }
