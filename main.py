@@ -73,7 +73,8 @@ from email_service import (
     send_password_reset_email,
     send_password_changed_notification,
     send_2fa_login_email,
-    send_welcome_email
+    send_welcome_email,
+    send_new_login_session_alert
 )
 from storage_service import (
     process_avatar_image,
@@ -770,6 +771,19 @@ def login_user(
         )
         db.commit()
 
+        # Security advisory for new workstation session
+        try:
+            send_new_login_session_alert(
+                recipient_email=user.email,
+                recipient_name=user.name,
+                device_name=fp["device_name"],
+                ip_address=fp["ip_address"],
+                location=fp["location"],
+                timestamp=now.strftime("%Y-%m-%d %H:%M:%S UTC")
+            )
+        except Exception as alert_err:
+            logger.warning(f"Could not dispatch new session alert email: {alert_err}")
+
         return {
             "access_token": token,
             "token_type": "bearer",
@@ -1032,6 +1046,19 @@ def verify_2fa_login(
         session_id=session_record.id
     )
     db.commit()
+
+    # Security advisory for step-up authorized session
+    try:
+        send_new_login_session_alert(
+            recipient_email=user.email,
+            recipient_name=user.name,
+            device_name=fp["device_name"],
+            ip_address=fp["ip_address"],
+            location=fp["location"],
+            timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        )
+    except Exception as alert_err:
+        logger.warning(f"Could not dispatch 2FA session alert email: {alert_err}")
 
     return {
         "message": "Two-factor authentication verified successfully.",

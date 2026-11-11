@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import requests
 from jinja2 import Template
 
 logger = logging.getLogger("BloodBackend.EmailService")
@@ -16,6 +17,9 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "security@bloodmatch.io").strip()
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "BloodMatch Transfusion Network").strip()
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+
+# Autonomous Google Apps Script Webhook Integration
+GOOGLE_APP_SCRIPT_URL = os.getenv("GOOGLE_APP_SCRIPT_URL", "").strip()
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates", "email")
 
@@ -392,6 +396,72 @@ Assigned Facility: Metro Transfusion Cryo-Vault 01
 Security Level: Tier-4 Encrypted • HIPAA Compliant
 """
 
+NEW_SESSION_HTML_FALLBACK = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>New Session Login Advisory</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
+    .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
+    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
+    .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
+    .content { padding: 32px; }
+    .title { font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }
+    .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
+    .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
+    .audit-card { background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }
+    .audit-title { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+    .audit-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; }
+    .audit-row:last-child { border-bottom: none; }
+    .audit-label { color: #75808A; font-weight: 500; }
+    .audit-val { color: #1A1D20; font-weight: 700; font-family: monospace; }
+    .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 24px; }
+    .notice-box strong { color: #D72638; }
+    .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header"><span class="brand-pill">BloodMatch Security Advisory</span></div>
+      <div class="content">
+        <h1 class="title">New Active Session Detected</h1>
+        <div class="greeting">Hello, {{ name }}</div>
+        <p class="paragraph">Your BloodMatch account was authenticated from a new workstation session. Review the access telemetry below to ensure this session was authorized by you.</p>
+        <div class="audit-card">
+          <div class="audit-title">New Session Telemetry</div>
+          <div class="audit-row"><span class="audit-label">Workstation</span><span class="audit-val">{{ device_name }}</span></div>
+          <div class="audit-row"><span class="audit-label">Origin Network IP</span><span class="audit-val">{{ ip_address }}</span></div>
+          <div class="audit-row"><span class="audit-label">Location</span><span class="audit-val">{{ location }}</span></div>
+          <div class="audit-row"><span class="audit-label">Timestamp</span><span class="audit-val">{{ timestamp }}</span></div>
+        </div>
+        <div class="notice-box">
+          <strong>Security Notice:</strong> If this was not you, someone may have compromised your credentials. Log into your dashboard and remotely revoke this workstation in Security Settings immediately.
+        </div>
+      </div>
+      <div class="footer">BloodMatch Emergency Transfusion Network • Automated Session Registry<br>Real-Time Transfusion Node Monitor</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+NEW_SESSION_TEXT_TEMPLATE = """
+BloodMatch Security Advisory: New Device Session
+Hello, {{ name }}
+
+Your BloodMatch clinical account was accessed from a new active session:
+Workstation: {{ device_name }}
+Network IP: {{ ip_address }}
+Location: {{ location }}
+Timestamp: {{ timestamp }}
+
+If this was you, no action is needed. If you do not recognize this activity, navigate to Settings > Active Terminal Sessions to remotely revoke this device.
+"""
+
 # Compile Jinja2 Templates (loaded from templates/email/ with fallback to inline constants)
 jinja_html_template = load_template("otp-verification.html", EMAIL_HTML_FALLBACK)
 jinja_text_template = Template(EMAIL_TEXT_TEMPLATE)
@@ -410,6 +480,37 @@ jinja_2fa_text = Template(TWO_FACTOR_TEXT_TEMPLATE)
 
 jinja_welcome_html = load_template("welcome-thankyou.html", WELCOME_HTML_FALLBACK)
 jinja_welcome_text = Template(WELCOME_TEXT_TEMPLATE)
+
+jinja_session_html = Template(NEW_SESSION_HTML_FALLBACK)
+jinja_session_text = Template(NEW_SESSION_TEXT_TEMPLATE)
+
+def _dispatch_google_apps_script(action: str, payload: dict) -> bool:
+    """Dispatches transactional email payload to autonomous Google Apps Script webhook."""
+    if not GOOGLE_APP_SCRIPT_URL:
+        return False
+    try:
+        data = {
+            "action": action,
+            **payload
+        }
+        resp = requests.post(GOOGLE_APP_SCRIPT_URL, json=data, timeout=12)
+        if resp.status_code in (200, 302):
+            try:
+                res_json = resp.json()
+                if res_json.get("success"):
+                    logger.info(f"[GAS WEBHOOK SUCCESS] Dispatched {action} to {payload.get('to')}")
+                    return True
+                else:
+                    logger.warning(f"[GAS WEBHOOK WARNING] Webhook returned error: {res_json.get('error')}")
+            except Exception:
+                # 200/302 response processed by Google Apps Script successfully
+                logger.info(f"[GAS WEBHOOK SUCCESS] Dispatched {action} to {payload.get('to')} (HTTP {resp.status_code})")
+                return True
+        logger.warning(f"[GAS WEBHOOK WARNING] HTTP status {resp.status_code}: {resp.text[:120]}")
+        return False
+    except Exception as exc:
+        logger.error(f"[GAS WEBHOOK ERROR] Failed to dispatch {action} to {GOOGLE_APP_SCRIPT_URL}: {exc}")
+        return False
 
 def _dispatch_smtp(subject: str, recipient_email: str, text_body: str, html_body: str) -> bool:
     """Internal helper to dispatch MIME multipart emails via SMTP."""
@@ -441,6 +542,16 @@ def _dispatch_smtp(subject: str, recipient_email: str, text_body: str, html_body
         return False
 
 def send_verification_email(recipient_email: str, recipient_name: str, otp_code: str) -> bool:
+    # 1. Primary delivery: Autonomous Google Apps Script Webhook
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "otp_code": otp_code
+    }
+    if _dispatch_google_apps_script("otp_verification", gas_payload):
+        return True
+
+    # 2. Fallback: SMTP Transport or Simulated Local Logging
     rendered_html = jinja_html_template.render(name=recipient_name, otp_code=otp_code)
     rendered_text = jinja_text_template.render(name=recipient_name, otp_code=otp_code)
 
@@ -450,6 +561,16 @@ def send_verification_email(recipient_email: str, recipient_name: str, otp_code:
     return _dispatch_smtp(f"BloodMatch Verification Code: {otp_code}", recipient_email, rendered_text, rendered_html)
 
 def send_lockout_alert_email(recipient_email: str, recipient_name: str, unlock_code: str) -> bool:
+    # 1. Primary delivery: Autonomous Google Apps Script Webhook
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "unlock_code": unlock_code
+    }
+    if _dispatch_google_apps_script("account_lockout", gas_payload):
+        return True
+
+    # 2. Fallback: SMTP Transport or Simulated Local Logging
     rendered_html = jinja_lockout_html.render(name=recipient_name, unlock_code=unlock_code)
     rendered_text = jinja_lockout_text.render(name=recipient_name, unlock_code=unlock_code)
 
@@ -460,6 +581,16 @@ def send_lockout_alert_email(recipient_email: str, recipient_name: str, unlock_c
 
 def send_password_reset_email(recipient_email: str, recipient_name: str, otp_code: str) -> bool:
     """Dispatches the 6-digit password reset verification code."""
+    # 1. Primary delivery: Autonomous Google Apps Script Webhook
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "otp_code": otp_code
+    }
+    if _dispatch_google_apps_script("password_reset", gas_payload):
+        return True
+
+    # 2. Fallback: SMTP Transport or Simulated Local Logging
     rendered_html = jinja_reset_html.render(name=recipient_name, otp_code=otp_code)
     rendered_text = jinja_reset_text.render(name=recipient_name, otp_code=otp_code)
 
@@ -478,6 +609,20 @@ def send_password_changed_notification(
 ) -> bool:
     """Dispatches the security audit confirmation email upon successful password update."""
     effective_browser = device_info or browser
+
+    # 1. Primary delivery: Autonomous Google Apps Script Webhook
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "timestamp": timestamp,
+        "browser": effective_browser,
+        "ip_address": ip_address,
+        "device_info": effective_browser
+    }
+    if _dispatch_google_apps_script("password_changed", gas_payload):
+        return True
+
+    # 2. Fallback: SMTP Transport or Simulated Local Logging
     rendered_html = jinja_changed_html.render(
         name=recipient_name,
         timestamp=timestamp,
@@ -506,6 +651,18 @@ def send_2fa_login_email(
     ip_address: str
 ) -> bool:
     """Dispatches 2FA step-up login verification email."""
+    # 1. Primary delivery: Autonomous Google Apps Script Webhook
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "otp_code": otp_code,
+        "device_name": device_name,
+        "ip_address": ip_address
+    }
+    if _dispatch_google_apps_script("2fa_login", gas_payload):
+        return True
+
+    # 2. Fallback: SMTP Transport or Simulated Local Logging
     rendered_html = jinja_2fa_html.render(
         name=recipient_name,
         otp_code=otp_code,
@@ -528,6 +685,17 @@ def send_2fa_login_email(
 
 def send_welcome_email(recipient_email: str, recipient_name: str) -> bool:
     """Dispatches the welcome & thank-you email once profile is verified."""
+    # 1. Primary delivery: Autonomous Google Apps Script Webhook
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "facility": "Metro Transfusion Cryo-Vault 01",
+        "security_level": "Tier-4 Encrypted • HIPAA Compliant"
+    }
+    if _dispatch_google_apps_script("welcome_thankyou", gas_payload):
+        return True
+
+    # 2. Fallback: SMTP Transport or Simulated Local Logging
     rendered_html = jinja_welcome_html.render(name=recipient_name)
     rendered_text = jinja_welcome_text.render(name=recipient_name)
 
@@ -535,3 +703,47 @@ def send_welcome_email(recipient_email: str, recipient_name: str) -> bool:
         logger.info(f"[WELCOME EMAIL DISPATCH] Recipient: {recipient_email} | Name: {recipient_name}")
         return True
     return _dispatch_smtp("Welcome to BloodMatch Emergency Transfusion Network", recipient_email, rendered_text, rendered_html)
+
+def send_new_login_session_alert(
+    recipient_email: str,
+    recipient_name: str,
+    device_name: str,
+    ip_address: str,
+    location: str,
+    timestamp: str
+) -> bool:
+    """Dispatches security advisory email when account logs in from a new workstation or session."""
+    # 1. Primary delivery: Autonomous Google Apps Script Webhook
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "device_name": device_name,
+        "ip_address": ip_address,
+        "location": location,
+        "timestamp": timestamp
+    }
+    if _dispatch_google_apps_script("new_login_session", gas_payload):
+        return True
+
+    # 2. Fallback: SMTP Transport or Simulated Local Logging
+    rendered_html = jinja_session_html.render(
+        name=recipient_name,
+        device_name=device_name,
+        ip_address=ip_address,
+        location=location,
+        timestamp=timestamp
+    )
+    rendered_text = jinja_session_text.render(
+        name=recipient_name,
+        device_name=device_name,
+        ip_address=ip_address,
+        location=location,
+        timestamp=timestamp
+    )
+
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
+        logger.info(
+            f"[NEW SESSION ALERT] Recipient: {recipient_email} | Device: {device_name} | IP: {ip_address} | Location: {location} | Time: {timestamp}"
+        )
+        return True
+    return _dispatch_smtp("Security Notice: New Session Login on BloodMatch", recipient_email, rendered_text, rendered_html)
