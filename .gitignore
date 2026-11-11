@@ -30,10 +30,13 @@ ENV/
 env.bak/
 venv.bak/
 
-# Environment Variables (Strictly Private)
+# Environment Variables (Strictly Private - NEVER COMMIT TO GITHUB)
 .env
 .env.local
 .env.*.local
+.env.example
+.env.*
+*.env*
 
 # Local SQLite Fallback Database Files
 *.db

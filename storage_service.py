@@ -202,14 +202,14 @@ def upload_user_asset(
                 Body=content,
                 ContentType=content_type
             )
-            public_url = f"{R2_PUBLIC_URL}/{s3_key}" if R2_PUBLIC_URL else f"https://{R2_BUCKET_NAME}.r2.dev/{s3_key}"
+            public_url = f"{R2_PUBLIC_URL}/{s3_key}" if R2_PUBLIC_URL else f"/{s3_key}"
             logger.info(f"Asset uploaded to Cloudflare R2: {s3_key}")
         except Exception as exc:
             logger.error(f"Cloudflare R2 upload error for {s3_key}: {exc}")
             raise
     else:
-        # Fallback simulated URL if credentials missing
-        public_url = f"https://bloodmatch-storage.local/{s3_key}"
+        # Fallback relative URL if R2 credentials not configured
+        public_url = f"{R2_PUBLIC_URL}/{s3_key}" if R2_PUBLIC_URL else f"/{s3_key}"
 
     return {
         "s3_key": s3_key,
