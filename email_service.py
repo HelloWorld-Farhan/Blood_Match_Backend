@@ -16,124 +16,332 @@ SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "security@bloodmatch.io").strip()
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "BloodMatch Transfusion Network").strip()
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
 
-# ==========================================
-# JINJA2 EMAIL TEMPLATES
-# ==========================================
+TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates", "email")
 
-EMAIL_HTML_TEMPLATE = """
+def load_template(filename: str, fallback_string: str) -> Template:
+    """Loads a template file from templates/email/ or uses the fallback inline string."""
+    file_path = os.path.join(TEMPLATES_DIR, filename)
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return Template(f.read())
+        except Exception as exc:
+            logger.warning(f"Could not load external template {filename}: {exc}")
+    return Template(fallback_string)
+
+# =========================================================================
+# MINIMAL, BUTTON-FREE INLINE FALLBACK TEMPLATES (EXACT MATCH TO UI DESIGN)
+# =========================================================================
+
+EMAIL_HTML_FALLBACK = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Verify Your BloodMatch Account</title>
+  <title>Account Verification Code</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0B0E14; color: #E2E8F0; margin: 0; padding: 0; }
-    .container { max-width: 580px; margin: 40px auto; background: #111726; border: 1px solid #1E293B; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6); }
-    .header { background: linear-gradient(135deg, #7F1D1D 0%, #DC2626 100%); padding: 32px 24px; text-align: center; }
-    .header h1 { margin: 0; color: #FFFFFF; font-size: 26px; letter-spacing: -0.5px; font-weight: 800; }
-    .header p { margin: 8px 0 0 0; color: #FEE2E2; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
-    .content { padding: 36px 32px; }
-    .greeting { font-size: 18px; font-weight: 600; color: #F8FAFC; margin-bottom: 12px; }
-    .message { font-size: 15px; line-height: 1.6; color: #94A3B8; margin-bottom: 28px; }
-    .otp-box { background: #06090F; border: 2px dashed #DC2626; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0; }
-    .otp-code { font-family: 'Courier New', Courier, monospace; font-size: 38px; font-weight: 800; letter-spacing: 12px; color: #EF4444; display: inline-block; margin: 0; }
-    .timer-alert { margin-top: 12px; font-size: 13px; color: #CBD5E1; font-weight: 500; }
-    .guidance-box { background: rgba(30, 41, 59, 0.5); border-left: 4px solid #DC2626; padding: 14px 18px; border-radius: 6px; margin-top: 24px; font-size: 13px; color: #94A3B8; line-height: 1.5; }
-    .footer { border-top: 1px solid #1E293B; padding: 24px; text-align: center; font-size: 12px; color: #64748B; background: #0D121D; }
+    body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
+    .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
+    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
+    .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
+    .content { padding: 32px; }
+    .title { font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }
+    .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
+    .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
+    .otp-container { background: #FDF9F8; border: 1.5px dashed #D72638; border-radius: 14px; padding: 20px 16px; text-align: center; margin: 20px 0; }
+    .otp-label { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .otp-code { font-family: monospace; font-size: 38px; font-weight: 900; letter-spacing: 10px; color: #D72638; display: inline-block; margin: 0; }
+    .otp-validity { margin-top: 10px; font-size: 12px; color: #7A0C17; font-weight: 600; }
+    .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
+    .notice-box strong { color: #D72638; }
+    .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>🩸 BloodMatch Emergency Network</h1>
-      <p>Clinical Account Authentication Token</p>
-    </div>
-    <div class="content">
-      <div class="greeting">Hello, {{ name }}</div>
-      <div class="message">Thank you for registering with the BloodMatch Transfusion Network. Please use the following single-use verification token to activate your clinical profile.</div>
-      <div class="otp-box">
-        <div class="otp-code">{{ otp_code }}</div>
-        <div class="timer-alert">⏱ Valid for 10 minutes (Strict 30s resend cooldown)</div>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header"><span class="brand-pill">BloodMatch Clinical Network</span></div>
+      <div class="content">
+        <h1 class="title">Account Verification Code</h1>
+        <div class="greeting">Hello, {{ name }}</div>
+        <p class="paragraph">Thank you for registering with the BloodMatch Transfusion Network. Please use the following single-use verification code in the application to activate your clinical profile.</p>
+        <div class="otp-container">
+          <div class="otp-label">Single-Use Security Token</div>
+          <div class="otp-code">{{ otp_code }}</div>
+          <div class="otp-validity">⏱ Valid for 10 minutes • Single device session</div>
+        </div>
+        <div class="notice-box"><strong>Security Notice:</strong> Never share this verification token with anyone. BloodMatch personnel will never ask for your authentication codes.</div>
       </div>
-      <div class="guidance-box">
-        <strong>Security Notice:</strong> Never share this verification token with anyone. BloodMatch staff will never ask for your authentication codes.
-      </div>
-    </div>
-    <div class="footer">
-      BloodMatch Clinical Transfusion Systems &bull; Automated Dispatch Node<br>
-      If you did not request this account registration, you can safely ignore this notification.
+      <div class="footer">BloodMatch Emergency Transfusion Network • Automated Clinical Dispatch Node<br>If you did not request this registration, please disregard this email.</div>
     </div>
   </div>
 </body>
 </html>
 """
 
-EMAIL_TEXT_TEMPLATE = """
-BloodMatch Emergency Transfusion Network
-Clinical Account Verification
-
-Hello, {{ name }}
-
-Your 6-digit verification code is: {{ otp_code }}
-
-This code is valid for 10 minutes. A strict 30-second cooldown applies before new tokens may be requested.
-If you did not initiate this registration, please disregard this email.
-"""
-
-LOCKOUT_HTML_TEMPLATE = """
+LOCKOUT_HTML_FALLBACK = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CRITICAL: Account Lockout Security Alert</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0B0E14; color: #E2E8F0; margin: 0; padding: 0; }
-    .container { max-width: 580px; margin: 40px auto; background: #111726; border: 1px solid #EF4444; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(220, 38, 38, 0.2); }
-    .header { background: linear-gradient(135deg, #991B1B 0%, #450A0A 100%); padding: 32px 24px; text-align: center; border-bottom: 2px solid #EF4444; }
-    .header h1 { margin: 0; color: #FFFFFF; font-size: 24px; font-weight: 800; }
-    .header p { margin: 8px 0 0 0; color: #FCA5A5; font-size: 13px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
-    .content { padding: 36px 32px; }
-    .greeting { font-size: 18px; font-weight: 700; color: #F8FAFC; margin-bottom: 12px; }
-    .message { font-size: 15px; line-height: 1.6; color: #CBD5E1; margin-bottom: 24px; }
-    .unlock-box { background: #06090F; border: 2px solid #EF4444; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0; }
-    .unlock-code { font-family: 'Courier New', Courier, monospace; font-size: 40px; font-weight: 900; letter-spacing: 14px; color: #F87171; display: inline-block; margin: 0; }
-    .timer-alert { margin-top: 12px; font-size: 13px; color: #FCA5A5; font-weight: 600; }
-    .guidance-box { background: rgba(69, 10, 10, 0.4); border-left: 4px solid #EF4444; padding: 16px 20px; border-radius: 6px; margin-top: 24px; font-size: 13px; color: #FECACA; line-height: 1.6; }
-    .footer { border-top: 1px solid #1E293B; padding: 24px; text-align: center; font-size: 12px; color: #64748B; background: #0D121D; }
+    body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
+    .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
+    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1.5px solid #D72638; border-radius: 20px; overflow: hidden; }
+    .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
+    .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 800; color: #D72638; text-transform: uppercase; }
+    .content { padding: 32px; }
+    .title { font-size: 22px; font-weight: 900; color: #7A0C17; margin: 0 0 10px 0; }
+    .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
+    .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
+    .unlock-container { background: #FFF5F5; border: 1.5px solid #D72638; border-radius: 14px; padding: 20px 16px; text-align: center; margin: 20px 0; }
+    .unlock-label { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .unlock-code { font-family: monospace; font-size: 38px; font-weight: 900; letter-spacing: 10px; color: #D72638; display: inline-block; margin: 0; }
+    .unlock-validity { margin-top: 10px; font-size: 12px; color: #7A0C17; font-weight: 600; }
+    .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
+    .notice-box strong { color: #D72638; }
+    .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>🚨 CRITICAL SECURITY ALERT</h1>
-      <p>Account Locked &bull; Multiple Failed Login Attempts</p>
-    </div>
-    <div class="content">
-      <div class="greeting">Attention, {{ name }}</div>
-      <div class="message">Your BloodMatch clinical account was automatically locked after <strong>3 consecutive failed password attempts</strong> to safeguard transfusion authorization records from unauthorized brute-force scripts.</div>
-      <div class="unlock-box">
-        <div class="unlock-code">{{ unlock_code }}</div>
-        <div class="timer-alert">⏱ Emergency Unlock Code expires in 10 minutes</div>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header"><span class="brand-pill">Critical Security Defense</span></div>
+      <div class="content">
+        <h1 class="title">Account Locked</h1>
+        <div class="greeting">Attention, {{ name }}</div>
+        <p class="paragraph">Your BloodMatch clinical account was automatically locked after <strong>3 consecutive failed password attempts</strong> to safeguard patient records from automated brute-force attacks.</p>
+        <div class="unlock-container">
+          <div class="unlock-label">Emergency Reset / Unlock Code</div>
+          <div class="unlock-code">{{ unlock_code }}</div>
+          <div class="unlock-validity">⏱ Valid for 10 minutes • Clear lockout immediately</div>
+        </div>
+        <div class="notice-box"><strong>Immediate Action:</strong> Submit this code in the portal to unlock your account. If you did not initiate these login attempts, update your password right away.</div>
       </div>
-      <div class="guidance-box">
-        <strong>Immediate Security Action:</strong> If this attempt was NOT initiated by you, your credentials may be compromised. Use this emergency unlock code to unlock your account and immediately update your clinical password.
-      </div>
-    </div>
-    <div class="footer">
-      BloodMatch Autonomous Threat Mitigation Node &bull; Transfusion Zero-Trust Infrastructure<br>
-      This is an automated cryptographic alert. Do not reply to this dispatch.
+      <div class="footer">BloodMatch Threat Defense Center • Transfusion Zero-Trust Infrastructure</div>
     </div>
   </div>
 </body>
 </html>
+"""
+
+RESET_HTML_FALLBACK = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Password Reset Code</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
+    .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
+    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
+    .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
+    .content { padding: 32px; }
+    .title { font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }
+    .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
+    .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
+    .otp-container { background: #FDF9F8; border: 1.5px dashed #D72638; border-radius: 14px; padding: 20px 16px; text-align: center; margin: 20px 0; }
+    .otp-label { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .otp-code { font-family: monospace; font-size: 38px; font-weight: 900; letter-spacing: 10px; color: #D72638; display: inline-block; margin: 0; }
+    .otp-validity { margin-top: 10px; font-size: 12px; color: #7A0C17; font-weight: 600; }
+    .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
+    .notice-box strong { color: #D72638; }
+    .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header"><span class="brand-pill">BloodMatch Security Center</span></div>
+      <div class="content">
+        <h1 class="title">Password Reset Code</h1>
+        <div class="greeting">Hello, {{ name }}</div>
+        <p class="paragraph">We received an authentication request to reset your clinical account password. Enter the following 6-digit recovery code in the password recovery modal to verify your identity and set a new password.</p>
+        <div class="otp-container">
+          <div class="otp-label">Password Recovery Token</div>
+          <div class="otp-code">{{ otp_code }}</div>
+          <div class="otp-validity">⏱ Valid for 10 minutes • Single-use</div>
+        </div>
+        <div class="notice-box"><strong>Security Notice:</strong> If you did not request a password reset, your credentials may be targeted. Please notify your facility network administrator immediately.</div>
+      </div>
+      <div class="footer">BloodMatch Emergency Transfusion Network • Automated Security Gate</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+CHANGED_HTML_FALLBACK = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Security Alert: Password Changed</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
+    .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
+    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
+    .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
+    .content { padding: 32px; }
+    .title { font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }
+    .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
+    .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
+    .audit-card { background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }
+    .audit-title { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+    .audit-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; }
+    .audit-row:last-child { border-bottom: none; }
+    .audit-label { color: #75808A; font-weight: 500; }
+    .audit-val { color: #1A1D20; font-weight: 700; font-family: monospace; }
+    .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
+    .notice-box strong { color: #D72638; }
+    .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header"><span class="brand-pill">BloodMatch Security Alert</span></div>
+      <div class="content">
+        <h1 class="title">Security Password Updated</h1>
+        <div class="greeting">Hello, {{ name }}</div>
+        <p class="paragraph">This automated security advisory confirms that the access password for your clinical account has been updated successfully. Active sessions have been audited and cryptographic tokens regenerated.</p>
+        <div class="audit-card">
+          <div class="audit-title">Security Event Audit Trail</div>
+          <div class="audit-row"><span class="audit-label">Timestamp</span><span class="audit-val">{{ timestamp }}</span></div>
+          <div class="audit-row"><span class="audit-label">Terminal / Device</span><span class="audit-val">{{ browser }}</span></div>
+          <div class="audit-row"><span class="audit-label">Origin Network IP</span><span class="audit-val">{{ ip_address }}</span></div>
+        </div>
+        <div class="notice-box"><strong>Important:</strong> If you did not make this change, your credentials may be compromised. Lock down your terminal and report this incident to your facility trauma administrator immediately.</div>
+      </div>
+      <div class="footer">BloodMatch Clinical Security Service • Real-Time Transfusion Defense</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+TWO_FACTOR_HTML_FALLBACK = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Two-Factor Authentication Challenge</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
+    .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
+    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
+    .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
+    .content { padding: 32px; }
+    .title { font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }
+    .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
+    .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
+    .otp-container { background: #FDF9F8; border: 1.5px dashed #D72638; border-radius: 14px; padding: 20px 16px; text-align: center; margin: 20px 0; }
+    .otp-label { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .otp-code { font-family: monospace; font-size: 38px; font-weight: 900; letter-spacing: 10px; color: #D72638; display: inline-block; margin: 0; }
+    .otp-validity { margin-top: 10px; font-size: 12px; color: #7A0C17; font-weight: 600; }
+    .audit-card { background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 14px 18px; margin: 20px 0; font-size: 12px; }
+    .audit-row { display: flex; justify-content: space-between; padding: 5px 0; color: #5A626A; }
+    .audit-val { color: #1A1D20; font-weight: 700; }
+    .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
+    .notice-box strong { color: #D72638; }
+    .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header"><span class="brand-pill">Step-Up 2FA Challenge</span></div>
+      <div class="content">
+        <h1 class="title">Two-Factor Authentication</h1>
+        <div class="greeting">Hello, {{ name }}</div>
+        <p class="paragraph">A sign-in attempt was initiated from a new or protected workstation. Please submit the following single-use 6-digit code in the login portal to complete authentication:</p>
+        <div class="otp-container">
+          <div class="otp-label">2FA Login Code</div>
+          <div class="otp-code">{{ otp_code }}</div>
+          <div class="otp-validity">⏱ Valid for 10 minutes • Device Step-Up</div>
+        </div>
+        <div class="audit-card">
+          <div class="audit-row"><span>Attempted Terminal:</span><span class="audit-val">{{ device_name }}</span></div>
+          <div class="audit-row"><span>Source IP Address:</span><span class="audit-val">{{ ip_address }}</span></div>
+        </div>
+        <div class="notice-box"><strong>Security Notice:</strong> If you did not initiate this sign-in attempt, your credentials may be known to an unauthorized party. Change your password immediately.</div>
+      </div>
+      <div class="footer">BloodMatch Transfusion Network • Autonomous Threat Defense Node</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+WELCOME_HTML_FALLBACK = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Welcome to BloodMatch Transfusion Network</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
+    .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
+    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
+    .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
+    .content { padding: 32px; }
+    .title { font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }
+    .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
+    .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
+    .status-card { background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }
+    .status-title { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+    .status-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; }
+    .status-row:last-child { border-bottom: none; }
+    .status-label { color: #75808A; font-weight: 500; }
+    .status-val { color: #1A1D20; font-weight: 700; }
+    .badge-active { color: #047857; font-weight: 700; }
+    .notice-box { background: #F0FDF4; border-left: 3px solid #10B981; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #166534; line-height: 1.5; margin-top: 20px; }
+    .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="header"><span class="brand-pill">BloodMatch Network Welcome</span></div>
+      <div class="content">
+        <h1 class="title">Profile Verified & Activated</h1>
+        <div class="greeting">Welcome, {{ name }}</div>
+        <p class="paragraph">Your profile has been authenticated with the BloodMatch Emergency Transfusion Network. You now have authorized clearance to access our clinical coordination portal, monitor 8-group cryo-vault inventory, and coordinate rapid donor dispatch.</p>
+        <div class="status-card">
+          <div class="status-title">Credentials Overview</div>
+          <div class="status-row"><span class="status-label">Network Status</span><span class="status-val badge-active">● Active Verified Member</span></div>
+          <div class="status-row"><span class="status-label">Assigned Facility</span><span class="status-val">Metro Transfusion Cryo-Vault 01</span></div>
+          <div class="status-row"><span class="status-label">Encryption Level</span><span class="status-val">Tier-4 Encrypted • HIPAA Compliant</span></div>
+        </div>
+        <div class="notice-box">Your credentials are active. To begin managing trauma transfers or voluntary registries, simply open the portal on your authenticated clinical terminal.</div>
+      </div>
+      <div class="footer">BloodMatch Clinical Transfusion Systems • Emergency Hotline: +1 (800) 555-BLOOD</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+# Plain Text Fallbacks (Clean & Button-Free)
+EMAIL_TEXT_TEMPLATE = """
+BloodMatch Clinical Network - Account Verification
+Hello, {{ name }}
+
+Your 6-digit single-use verification code is: {{ otp_code }}
+
+This code is valid for 10 minutes.
+If you did not initiate this registration, please disregard this email.
 """
 
 LOCKOUT_TEXT_TEMPLATE = """
 CRITICAL SECURITY ALERT: Account Locked
-
-Hello, {{ name }}
+Attention, {{ name }}
 
 Your BloodMatch clinical account was locked after 3 consecutive failed login attempts.
 Your 6-digit emergency reset/unlock code is: {{ unlock_code }}
@@ -142,148 +350,65 @@ This unlock code is valid for 10 minutes.
 If you did not perform these login attempts, immediately unlock your account and change your security credentials.
 """
 
-RESET_HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Password Reset Request</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0B0E14; color: #E2E8F0; margin: 0; padding: 0; }
-    .container { max-width: 580px; margin: 40px auto; background: #111726; border: 1px solid #3B82F6; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6); }
-    .header { background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%); padding: 32px 24px; text-align: center; }
-    .header h1 { margin: 0; color: #FFFFFF; font-size: 24px; font-weight: 800; }
-    .header p { margin: 8px 0 0 0; color: #DBEAFE; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
-    .content { padding: 36px 32px; }
-    .greeting { font-size: 18px; font-weight: 600; color: #F8FAFC; margin-bottom: 12px; }
-    .message { font-size: 15px; line-height: 1.6; color: #94A3B8; margin-bottom: 24px; }
-    .otp-box { background: #06090F; border: 2px dashed #3B82F6; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0; }
-    .otp-code { font-family: 'Courier New', Courier, monospace; font-size: 38px; font-weight: 800; letter-spacing: 12px; color: #60A5FA; display: inline-block; margin: 0; }
-    .timer-alert { margin-top: 12px; font-size: 13px; color: #93C5FD; font-weight: 500; }
-    .guidance-box { background: rgba(30, 58, 138, 0.3); border-left: 4px solid #3B82F6; padding: 14px 18px; border-radius: 6px; margin-top: 24px; font-size: 13px; color: #BFDBFE; line-height: 1.5; }
-    .footer { border-top: 1px solid #1E293B; padding: 24px; text-align: center; font-size: 12px; color: #64748B; background: #0D121D; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🔐 BloodMatch Security</h1>
-      <p>Password Reset Verification Code</p>
-    </div>
-    <div class="content">
-      <div class="greeting">Hello, {{ name }}</div>
-      <div class="message">We received a request to reset the password for your BloodMatch clinical account. Please enter the following 6-digit verification code to proceed:</div>
-      <div class="otp-box">
-        <div class="otp-code">{{ otp_code }}</div>
-        <div class="timer-alert">⏱ Valid for 10 minutes (30-second resend limit)</div>
-      </div>
-      <div class="guidance-box">
-        <strong>Important:</strong> If you did not request a password reset, your credentials may be exposed. We recommend contacting facility security immediately.
-      </div>
-    </div>
-    <div class="footer">
-      BloodMatch Transfusion Network &bull; Automated Security Service<br>
-      If you did not initiate this request, you can safely disregard this email.
-    </div>
-  </div>
-</body>
-</html>
-"""
-
 RESET_TEXT_TEMPLATE = """
-BloodMatch Transfusion Network - Password Reset Request
-
+BloodMatch Security Center - Password Reset Code
 Hello, {{ name }}
 
-Your 6-digit password reset verification code is: {{ otp_code }}
+Your 6-digit password recovery code is: {{ otp_code }}
 
 This code is valid for 10 minutes.
 If you did not request this, please contact clinical security immediately.
 """
 
-CHANGED_HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Security Notice: Password Successfully Changed</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0B0E14; color: #E2E8F0; margin: 0; padding: 0; }
-    .container { max-width: 580px; margin: 40px auto; background: #111726; border: 1px solid #10B981; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(16, 185, 129, 0.2); }
-    .header { background: linear-gradient(135deg, #065F46 0%, #10B981 100%); padding: 32px 24px; text-align: center; }
-    .header h1 { margin: 0; color: #FFFFFF; font-size: 24px; font-weight: 800; }
-    .header p { margin: 8px 0 0 0; color: #D1FAE5; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
-    .content { padding: 36px 32px; }
-    .greeting { font-size: 18px; font-weight: 700; color: #F8FAFC; margin-bottom: 12px; }
-    .message { font-size: 15px; line-height: 1.6; color: #CBD5E1; margin-bottom: 24px; }
-    .audit-card { background: #06090F; border: 1px solid #1E293B; border-radius: 12px; padding: 20px; margin: 20px 0; }
-    .audit-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1E293B; font-size: 14px; }
-    .audit-item:last-child { border-bottom: none; }
-    .audit-label { color: #94A3B8; font-weight: 500; }
-    .audit-value { color: #F1F5F9; font-weight: 600; font-family: monospace; }
-    .guidance-box { background: rgba(6, 95, 70, 0.3); border-left: 4px solid #10B981; padding: 16px 20px; border-radius: 6px; margin-top: 24px; font-size: 13px; color: #A7F3D0; line-height: 1.6; }
-    .footer { border-top: 1px solid #1E293B; padding: 24px; text-align: center; font-size: 12px; color: #64748B; background: #0D121D; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>✅ Security Audit Confirmation</h1>
-      <p>Password Successfully Updated</p>
-    </div>
-    <div class="content">
-      <div class="greeting">Hello, {{ name }}</div>
-      <div class="message">The password for your BloodMatch clinical account was successfully updated. Any active account lockouts have been automatically cleared.</div>
-      <div class="audit-card">
-        <div class="audit-item">
-          <span class="audit-label">Timestamp (UTC):</span>
-          <span class="audit-value">{{ timestamp }}</span>
-        </div>
-        <div class="audit-item">
-          <span class="audit-label">Client Device / Agent:</span>
-          <span class="audit-value">{{ device_info }}</span>
-        </div>
-        <div class="audit-item">
-          <span class="audit-label">Origin IP Address:</span>
-          <span class="audit-value">{{ ip_address }}</span>
-        </div>
-      </div>
-      <div class="guidance-box">
-        <strong>Audit Warning:</strong> If you did NOT initiate this password change, your account has been compromised. Please immediately lock your clinical credentials and notify security operations.
-      </div>
-    </div>
-    <div class="footer">
-      BloodMatch Autonomous Threat Mitigation Node &bull; Transfusion Zero-Trust Infrastructure<br>
-      This is an automated audit receipt.
-    </div>
-  </div>
-</body>
-</html>
-"""
-
 CHANGED_TEXT_TEMPLATE = """
-Security Audit Notice: Password Successfully Changed
-
+Security Notice: Password Successfully Updated
 Hello, {{ name }}
 
-The password for your BloodMatch account was updated at {{ timestamp }}.
-Client Device: {{ device_info }}
+The password for your BloodMatch clinical account was updated at {{ timestamp }}.
+Terminal / Device: {{ browser }}
 Origin IP: {{ ip_address }}
 
-If you did not make this change, please report this unauthorized activity immediately.
+If you did not make this change, please report this incident immediately.
 """
 
-# Compile Jinja2 Templates
-jinja_html_template = Template(EMAIL_HTML_TEMPLATE)
+TWO_FACTOR_TEXT_TEMPLATE = """
+BloodMatch Two-Factor Authentication Challenge
+Hello, {{ name }}
+
+Your 6-digit login verification code is: {{ otp_code }}
+Attempted Device: {{ device_name }}
+Source IP: {{ ip_address }}
+
+This code is valid for 10 minutes.
+"""
+
+WELCOME_TEXT_TEMPLATE = """
+Welcome to BloodMatch Emergency Transfusion Network
+Hello, {{ name }}
+
+Your profile has been verified and activated.
+Assigned Facility: Metro Transfusion Cryo-Vault 01
+Security Level: Tier-4 Encrypted • HIPAA Compliant
+"""
+
+# Compile Jinja2 Templates (loaded from templates/email/ with fallback to inline constants)
+jinja_html_template = load_template("otp-verification.html", EMAIL_HTML_FALLBACK)
 jinja_text_template = Template(EMAIL_TEXT_TEMPLATE)
-jinja_lockout_html = Template(LOCKOUT_HTML_TEMPLATE)
+
+jinja_lockout_html = Template(LOCKOUT_HTML_FALLBACK)
 jinja_lockout_text = Template(LOCKOUT_TEXT_TEMPLATE)
-jinja_reset_html = Template(RESET_HTML_TEMPLATE)
+
+jinja_reset_html = load_template("password-reset.html", RESET_HTML_FALLBACK)
 jinja_reset_text = Template(RESET_TEXT_TEMPLATE)
-jinja_changed_html = Template(CHANGED_HTML_TEMPLATE)
+
+jinja_changed_html = load_template("password-changed.html", CHANGED_HTML_FALLBACK)
 jinja_changed_text = Template(CHANGED_TEXT_TEMPLATE)
+
+jinja_2fa_html = Template(TWO_FACTOR_HTML_FALLBACK)
+jinja_2fa_text = Template(TWO_FACTOR_TEXT_TEMPLATE)
+
+jinja_welcome_html = load_template("welcome-thankyou.html", WELCOME_HTML_FALLBACK)
+jinja_welcome_text = Template(WELCOME_TEXT_TEMPLATE)
 
 def _dispatch_smtp(subject: str, recipient_email: str, text_body: str, html_body: str) -> bool:
     """Internal helper to dispatch MIME multipart emails via SMTP."""
@@ -321,7 +446,7 @@ def send_verification_email(recipient_email: str, recipient_name: str, otp_code:
     if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
         logger.info(f"[SIMULATED EMAIL DISPATCH] Recipient: {recipient_email} | Name: {recipient_name} | OTP: {otp_code}")
         return True
-    return _dispatch_smtp(f"Your BloodMatch Verification Code: {otp_code}", recipient_email, rendered_text, rendered_html)
+    return _dispatch_smtp(f"BloodMatch Verification Code: {otp_code}", recipient_email, rendered_text, rendered_html)
 
 def send_lockout_alert_email(recipient_email: str, recipient_name: str, unlock_code: str) -> bool:
     rendered_html = jinja_lockout_html.render(name=recipient_name, unlock_code=unlock_code)
@@ -342,105 +467,33 @@ def send_password_reset_email(recipient_email: str, recipient_name: str, otp_cod
         return True
     return _dispatch_smtp(f"BloodMatch Password Reset Verification Code: {otp_code}", recipient_email, rendered_text, rendered_html)
 
-TWO_FACTOR_HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Two-Factor Authentication Challenge</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0B0E14; color: #E2E8F0; margin: 0; padding: 0; }
-    .container { max-width: 580px; margin: 40px auto; background: #111726; border: 1px solid #6366F1; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(99, 102, 241, 0.2); }
-    .header { background: linear-gradient(135deg, #4338CA 0%, #6366F1 100%); padding: 32px 24px; text-align: center; }
-    .header h1 { margin: 0; color: #FFFFFF; font-size: 24px; font-weight: 800; }
-    .header p { margin: 8px 0 0 0; color: #E0E7FF; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; font-weight: 600; }
-    .content { padding: 36px 32px; }
-    .greeting { font-size: 18px; font-weight: 700; color: #F8FAFC; margin-bottom: 12px; }
-    .message { font-size: 15px; line-height: 1.6; color: #94A3B8; margin-bottom: 24px; }
-    .otp-box { background: #06090F; border: 2px dashed #6366F1; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0; }
-    .otp-code { font-family: 'Courier New', Courier, monospace; font-size: 38px; font-weight: 800; letter-spacing: 12px; color: #818CF8; display: inline-block; margin: 0; }
-    .timer-alert { margin-top: 12px; font-size: 13px; color: #C7D2FE; font-weight: 500; }
-    .audit-card { background: #06090F; border: 1px solid #1E293B; border-radius: 12px; padding: 16px; margin: 20px 0; font-size: 13px; }
-    .audit-row { display: flex; justify-content: space-between; padding: 6px 0; color: #94A3B8; }
-    .audit-val { color: #F1F5F9; font-weight: 600; }
-    .guidance-box { background: rgba(67, 56, 202, 0.2); border-left: 4px solid #6366F1; padding: 14px 18px; border-radius: 6px; margin-top: 24px; font-size: 13px; color: #C7D2FE; line-height: 1.5; }
-    .footer { border-top: 1px solid #1E293B; padding: 24px; text-align: center; font-size: 12px; color: #64748B; background: #0D121D; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🛡️ Two-Factor Authentication</h1>
-      <p>Security Step-Up Verification</p>
-    </div>
-    <div class="content">
-      <div class="greeting">Hello, {{ name }}</div>
-      <div class="message">A sign-in attempt was initiated from a new or protected device. Please submit the following single-use 6-digit 2FA token to complete authentication:</div>
-      <div class="otp-box">
-        <div class="otp-code">{{ otp_code }}</div>
-        <div class="timer-alert">⏱ Valid for 10 minutes</div>
-      </div>
-      <div class="audit-card">
-        <div class="audit-row"><span>Attempted Terminal:</span><span class="audit-val">{{ device_name }}</span></div>
-        <div class="audit-row"><span>Source IP Address:</span><span class="audit-val">{{ ip_address }}</span></div>
-      </div>
-      <div class="guidance-box">
-        <strong>Security Notice:</strong> If you did not initiate this login attempt, your credentials may be known to an unauthorized party. Change your password immediately.
-      </div>
-    </div>
-    <div class="footer">
-      BloodMatch Transfusion Network &bull; Autonomous Threat Defense Node<br>
-      Do not share this authentication token with anyone.
-    </div>
-  </div>
-</body>
-</html>
-"""
-
-TWO_FACTOR_TEXT_TEMPLATE = """
-BloodMatch Two-Factor Authentication Challenge
-
-Hello, {{ name }}
-
-Your 6-digit login verification code is: {{ otp_code }}
-Attempted Device: {{ device_name }}
-Source IP: {{ ip_address }}
-
-This code is valid for 10 minutes.
-If you did not initiate this sign-in, please change your password immediately.
-"""
-
-jinja_2fa_html = Template(TWO_FACTOR_HTML_TEMPLATE)
-jinja_2fa_text = Template(TWO_FACTOR_TEXT_TEMPLATE)
-
 def send_password_changed_notification(
     recipient_email: str,
     recipient_name: str,
     timestamp: str,
-    device_info: str,
+    browser: str,
     ip_address: str
 ) -> bool:
     """Dispatches the security audit confirmation email upon successful password update."""
     rendered_html = jinja_changed_html.render(
         name=recipient_name,
         timestamp=timestamp,
-        device_info=device_info,
+        browser=browser,
         ip_address=ip_address
     )
     rendered_text = jinja_changed_text.render(
         name=recipient_name,
         timestamp=timestamp,
-        device_info=device_info,
+        browser=browser,
         ip_address=ip_address
     )
 
     if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
         logger.info(
-            f"[SECURITY AUDIT CONFIRMATION] Recipient: {recipient_email} | Password Changed at: {timestamp} | Device: {device_info} | IP: {ip_address}"
+            f"[SECURITY AUDIT CONFIRMATION] Recipient: {recipient_email} | Password Changed at: {timestamp} | Browser: {browser} | IP: {ip_address}"
         )
         return True
-    return _dispatch_smtp("✅ Security Notice: BloodMatch Password Successfully Updated", recipient_email, rendered_text, rendered_html)
+    return _dispatch_smtp("Security Notice: BloodMatch Password Successfully Updated", recipient_email, rendered_text, rendered_html)
 
 def send_2fa_login_email(
     recipient_email: str,
@@ -468,5 +521,14 @@ def send_2fa_login_email(
             f"[2FA LOGIN CODE DISPATCH] Recipient: {recipient_email} | Name: {recipient_name} | OTP: {otp_code} | Device: {device_name} | IP: {ip_address}"
         )
         return True
-    return _dispatch_smtp(f"🛡️ BloodMatch 2FA Login Code: {otp_code}", recipient_email, rendered_text, rendered_html)
+    return _dispatch_smtp(f"BloodMatch 2FA Login Code: {otp_code}", recipient_email, rendered_text, rendered_html)
 
+def send_welcome_email(recipient_email: str, recipient_name: str) -> bool:
+    """Dispatches the welcome & thank-you email once profile is verified."""
+    rendered_html = jinja_welcome_html.render(name=recipient_name)
+    rendered_text = jinja_welcome_text.render(name=recipient_name)
+
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
+        logger.info(f"[WELCOME EMAIL DISPATCH] Recipient: {recipient_email} | Name: {recipient_name}")
+        return True
+    return _dispatch_smtp("Welcome to BloodMatch Emergency Transfusion Network", recipient_email, rendered_text, rendered_html)

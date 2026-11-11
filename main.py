@@ -65,7 +65,8 @@ from email_service import (
     send_lockout_alert_email,
     send_password_reset_email,
     send_password_changed_notification,
-    send_2fa_login_email
+    send_2fa_login_email,
+    send_welcome_email
 )
 
 load_dotenv()
@@ -331,6 +332,12 @@ def verify_otp(
     user.is_verified = True
     user.verified_at = datetime.utcnow()
     db.flush()
+
+    # Dispatch Welcome & Profile Activation Email (Minimal & Button-Free)
+    try:
+        send_welcome_email(user.email, user.full_name)
+    except Exception as exc:
+        logger.warning(f"Welcome email dispatch failed: {exc}")
 
     # Mint JWT Token
     token = create_access_token({"sub": user.id, "email": user.email})
