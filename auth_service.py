@@ -3,7 +3,7 @@ import re
 import uuid
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Union
 
 import bcrypt
 import jwt
@@ -172,19 +172,30 @@ def decode_access_token(token: str) -> dict:
         )
 
 def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: Session = Depends(get_db)
+    credentials: Optional[Union[HTTPAuthorizationCredentials, str]] = Depends(security),
+    db: Session = Depends(get_db),
+    token: Optional[str] = None
 ) -> UserModel:
     """
     Requirement 4: JWT Session Validation & Revocation Check
     Invalidates tokens for revoked sessions upon their next API request.
+    Supports both FastAPI Depends(security) and direct programmatic token string calls.
     """
-    if not credentials:
+    effective_token: Optional[str] = None
+    if token:
+        effective_token = token
+    elif isinstance(credentials, str):
+        effective_token = credentials
+    elif credentials and hasattr(credentials, "credentials"):
+        effective_token = credentials.credentials
+
+    if not effective_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication credentials required."
         )
-    payload = decode_access_token(credentials.credentials)
+
+    payload = decode_access_token(effective_token)
     user_id: str = payload.get("sub")
     session_id: Optional[str] = payload.get("sid")
 
@@ -221,6 +232,18 @@ def get_current_user(
     # Attach current session context to user instance
     user._current_session_id = session_id
     return user
+
+def get_user_from_token(token: str, db: Session) -> Optional[UserModel]:
+    """
+    Safe helper to resolve a UserModel from a raw JWT token string without throwing.
+    Returns None if token is invalid, expired, or session revoked.
+    """
+    if not token or not isinstance(token, str):
+        return None
+    try:
+        return get_current_user(credentials=token, db=db)
+    except Exception:
+        return None
 
 def get_current_verified_user(
     current_user: UserModel = Depends(get_current_user)

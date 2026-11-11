@@ -41,3 +41,4 @@ This directory contains the production-grade Google Apps Script email engine (`C
      ```env
      GOOGLE_APP_SCRIPT_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
      ```
+

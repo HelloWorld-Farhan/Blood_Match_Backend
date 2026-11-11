@@ -63,6 +63,8 @@ from auth_service import (
     create_access_token,
     get_current_user,
     get_current_verified_user,
+    get_user_from_token,
+    decode_access_token,
     create_password_reset_session_token,
     verify_password_reset_session_token,
     check_password_history
@@ -1685,11 +1687,9 @@ def list_clinical_checks(
     if not email and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            try:
-                u = get_current_user(auth_header.split(" ")[1], db)
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
                 email = u.email
-            except Exception:
-                pass
     query = db.query(ClinicalCheckModel)
     if email:
         query = query.filter(ClinicalCheckModel.user_email == email.strip().lower())
@@ -1707,11 +1707,9 @@ def create_clinical_check(
     if not email and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            try:
-                u = get_current_user(auth_header.split(" ")[1], db)
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
                 email = u.email
-            except Exception:
-                pass
     if not email:
         u = db.query(UserModel).first()
         email = u.email if u else "clinician@bloodmatch.io"
@@ -1779,11 +1777,9 @@ def list_clinical_documents(
     if not email and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            try:
-                u = get_current_user(auth_header.split(" ")[1], db)
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
                 email = u.email
-            except Exception:
-                pass
     query = db.query(ClinicalDocumentModel)
     if email:
         query = query.filter(ClinicalDocumentModel.user_email == email.strip().lower())
@@ -1801,11 +1797,9 @@ def create_clinical_document(
     if not email and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            try:
-                u = get_current_user(auth_header.split(" ")[1], db)
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
                 email = u.email
-            except Exception:
-                pass
     if not email:
         u = db.query(UserModel).first()
         email = u.email if u else "clinician@bloodmatch.io"
@@ -1859,11 +1853,9 @@ def list_clinical_audit_logs(
     if not email and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            try:
-                u = get_current_user(auth_header.split(" ")[1], db)
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
                 email = u.email
-            except Exception:
-                pass
     query = db.query(ClinicalAuditLogModel)
     if email:
         query = query.filter(ClinicalAuditLogModel.user_email == email.strip().lower())
@@ -1881,11 +1873,9 @@ def create_clinical_audit_log(
     if not email and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            try:
-                u = get_current_user(auth_header.split(" ")[1], db)
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
                 email = u.email
-            except Exception:
-                pass
     if not email:
         u = db.query(UserModel).first()
         email = u.email if u else "clinician@bloodmatch.io"
@@ -2096,12 +2086,9 @@ def get_user_sync_telemetry(
     auth_header = request.headers.get("Authorization") if request else None
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
-        try:
-            user_auth = get_current_user(token=token, db=db)
-            if user_auth:
-                email_clean = user_auth.email
-        except Exception:
-            pass
+        u = get_user_from_token(token, db)
+        if u:
+            email_clean = u.email
 
     if not email_clean and user_email:
         email_clean = user_email.strip().lower()
@@ -2175,11 +2162,9 @@ def push_user_sync_state(
     if not email_clean and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            try:
-                u = get_current_user(auth_header.split(" ")[1], db)
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
                 email_clean = u.email
-            except Exception:
-                pass
     if not email_clean:
         u = db.query(UserModel).first()
         email_clean = u.email if u else None
@@ -2207,11 +2192,9 @@ def pull_user_sync_state(
     if not email_clean and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            try:
-                u = get_current_user(auth_header.split(" ")[1], db)
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
                 email_clean = u.email
-            except Exception:
-                pass
     if not email_clean:
         u = db.query(UserModel).first()
         email_clean = u.email if u else None
