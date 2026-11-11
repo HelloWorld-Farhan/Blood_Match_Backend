@@ -87,6 +87,7 @@ from storage_service import (
     process_avatar_image,
     upload_user_asset,
     delete_user_asset,
+    delete_user_category_assets,
     list_user_assets,
     validate_tenant_access,
     sanitize_user_email,
@@ -726,6 +727,13 @@ def login_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email address or password."
+        )
+
+    # Activation Boundary: Unverified accounts cannot log in until OTP is verified
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account email has not been verified yet. Please complete 6-digit email OTP verification before logging in."
         )
 
     # Requirement 2: Check if account is locked
@@ -2346,6 +2354,13 @@ async def upload_user_avatar(
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
 
+    # 1. Purge any previous avatar files from R2 profile directory
+    # Strictly guarantees only ONE avatar/photo exists in R2 for this user
+    try:
+        delete_user_category_assets(current_user.email, "profile")
+    except Exception as exc:
+        logger.warning(f"Could not purge previous avatars for {current_user.email}: {exc}")
+
     filename = f"avatar.{ext}"
     try:
         upload_meta = upload_user_asset(
@@ -2462,6 +2477,12 @@ def delete_user_avatar(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Multi-tenant violation: Cannot delete another tenant's avatar."
         )
+
+    # Purge any avatar files from R2 storage
+    try:
+        delete_user_category_assets(current_user.email, "profile")
+    except Exception as exc:
+        logger.warning(f"Could not purge avatar files from R2 for {current_user.email}: {exc}")
 
     current_user.photo_url = None
     db.commit()

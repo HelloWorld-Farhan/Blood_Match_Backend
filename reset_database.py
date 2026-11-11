@@ -28,6 +28,7 @@ try:
         models.ClinicalAuditLogModel,
         models.ClinicalDocumentModel,
         models.DonorModel,
+        models.TransfusionAlertModel,
         models.InventoryModel
     ]
 
@@ -37,20 +38,20 @@ try:
 
     session.commit()
 
-    # Re-seed the 8 clean ABO & RhD blood groups
+    # Re-seed the 8 clean ABO & RhD blood groups initialized to zero for fresh operational start
     initial_inventory = [
-        models.InventoryModel(blood_type="O-", units_available=14, status="optimal", temperature_celsius=3.8),
-        models.InventoryModel(blood_type="O+", units_available=22, status="optimal", temperature_celsius=4.0),
-        models.InventoryModel(blood_type="A-", units_available=8, status="moderate", temperature_celsius=3.9),
-        models.InventoryModel(blood_type="A+", units_available=19, status="optimal", temperature_celsius=4.1),
-        models.InventoryModel(blood_type="B-", units_available=4, status="critical", temperature_celsius=4.0),
-        models.InventoryModel(blood_type="B+", units_available=17, status="optimal", temperature_celsius=3.7),
-        models.InventoryModel(blood_type="AB-", units_available=2, status="critical", temperature_celsius=4.2),
-        models.InventoryModel(blood_type="AB+", units_available=9, status="moderate", temperature_celsius=4.0),
+        models.InventoryModel(blood_type="O-", units_available=0, status="critical", temperature_celsius=4.0),
+        models.InventoryModel(blood_type="O+", units_available=0, status="critical", temperature_celsius=4.0),
+        models.InventoryModel(blood_type="A-", units_available=0, status="critical", temperature_celsius=4.0),
+        models.InventoryModel(blood_type="A+", units_available=0, status="critical", temperature_celsius=4.0),
+        models.InventoryModel(blood_type="B-", units_available=0, status="critical", temperature_celsius=4.0),
+        models.InventoryModel(blood_type="B+", units_available=0, status="critical", temperature_celsius=4.0),
+        models.InventoryModel(blood_type="AB-", units_available=0, status="critical", temperature_celsius=4.0),
+        models.InventoryModel(blood_type="AB+", units_available=0, status="critical", temperature_celsius=4.0),
     ]
     session.add_all(initial_inventory)
     session.commit()
-    print("Re-seeded pristine 8-group ABO/Rh inventory.")
+    print("Re-seeded pristine 8-group ABO/Rh inventory at 0 units.")
 
     # Status summary
     print("\n--- Current Database Table Counts ---")
@@ -60,6 +61,24 @@ try:
 
 finally:
     session.close()
+
+# Clean Cloudflare R2 Storage (users/ prefix)
+try:
+    from storage_service import get_r2_client, R2_BUCKET_NAME
+    r2 = get_r2_client()
+    if r2:
+        print("\nPurging Cloudflare R2 storage bucket (users/ prefix)...")
+        paginator = r2.get_paginator('list_objects_v2')
+        deleted_r2_count = 0
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix="users/"):
+            items = page.get("Contents", [])
+            if items:
+                delete_keys = [{"Key": item["Key"]} for item in items]
+                r2.delete_objects(Bucket=R2_BUCKET_NAME, Delete={"Objects": delete_keys})
+                deleted_r2_count += len(delete_keys)
+        print(f"Cloudflare R2 storage cleared ({deleted_r2_count} objects deleted under users/).")
+except Exception as r2_err:
+    print(f"Cloudflare R2 cleanup notice: {r2_err}")
 
 # Vacuum SQLite database if using SQLite fallback
 if "sqlite" in str(database.engine.url):

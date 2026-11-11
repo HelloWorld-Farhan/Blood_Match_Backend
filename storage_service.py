@@ -261,6 +261,40 @@ def delete_user_asset(s3_key: str, authenticated_email: str) -> bool:
             return False
     return True
 
+def delete_user_category_assets(authenticated_email: str, category: str) -> int:
+    """
+    Permanently deletes all existing assets within a specific category for a user
+    (e.g., users/{email}/profile/*).
+    Guarantees that when a user updates their profile picture/avatar, any previously
+    uploaded images are deleted completely, ensuring strictly ONE avatar exists per user.
+    """
+    sanitized_email = sanitize_user_email(authenticated_email)
+    clean_cat = re.sub(r'[^a-zA-Z0-9_\-]', '', category.strip().lower())
+    prefix = f"users/{sanitized_email}/{clean_cat}/"
+
+    r2 = get_r2_client()
+    if not r2:
+        return 0
+
+    deleted_count = 0
+    try:
+        response = r2.list_objects_v2(Bucket=R2_BUCKET_NAME, Prefix=prefix)
+        objects_to_delete = []
+        for obj in response.get("Contents", []):
+            objects_to_delete.append({"Key": obj["Key"]})
+
+        if objects_to_delete:
+            r2.delete_objects(
+                Bucket=R2_BUCKET_NAME,
+                Delete={"Objects": objects_to_delete}
+            )
+            deleted_count = len(objects_to_delete)
+            logger.info(f"[R2 CLEANUP] Purged {deleted_count} previous asset(s) under {prefix}")
+    except Exception as exc:
+        logger.error(f"[R2 CLEANUP ERROR] Failed to delete previous assets in {prefix}: {exc}")
+
+    return deleted_count
+
 def list_user_assets(authenticated_email: str, category: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Lists all assets in Cloudflare R2 within the user's isolated prefix.
