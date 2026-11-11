@@ -51,6 +51,7 @@ class OtpResendRequest(BaseModel):
 class UserLoginRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)
     password: str = Field(..., min_length=1)
+    device_id: Optional[str] = None
 
 class AccountUnlockRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)

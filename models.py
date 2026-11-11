@@ -78,6 +78,37 @@ class PasswordHistoryModel(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
+class UserSessionModel(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), index=True, nullable=False)
+    device_id = Column(String(64), index=True, nullable=False)
+    device_name = Column(String(100), nullable=False)
+    browser = Column(String(100), nullable=False)
+    os = Column(String(50), nullable=False)
+    ip_address = Column(String(50), nullable=False)
+    location = Column(String(120), default="Metro Transfusion Center")
+    status = Column(String(20), default="active", nullable=False) # "active" | "revoked"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_active = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self, current_session_id: str = None):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "device_id": self.device_id,
+            "device_name": self.device_name,
+            "browser": self.browser,
+            "os": self.os,
+            "ip_address": self.ip_address,
+            "location": self.location,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_active": self.last_active.isoformat() if self.last_active else None,
+            "is_current": bool(current_session_id and self.id == current_session_id)
+        }
+
 class InventoryModel(Base):
     __tablename__ = "inventory"
 

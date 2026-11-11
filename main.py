@@ -15,6 +15,7 @@ from models import (
     UserModel,
     OtpTokenModel,
     PasswordHistoryModel,
+    UserSessionModel,
     InventoryModel,
     DonorModel,
     EmergencyRequestModel,
@@ -44,6 +45,7 @@ from auth_service import (
     calculate_cooldown_remaining,
     calculate_login_cooldown_remaining,
     calculate_lockout_duration,
+    parse_device_fingerprint,
     create_access_token,
     get_current_user,
     get_current_verified_user,
@@ -390,17 +392,18 @@ def resend_otp(
 @app.post("/api/auth/login", tags=["Authentication"])
 def login_user(
     payload: UserLoginRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
-    Secure login with brute-force defense:
+    Secure login with brute-force defense and multi-device session registry:
     1. Checks if account is locked (locked_until > now) -> Returns HTTP 423
     2. Enforces 5-second cooldown between password submissions -> Returns HTTP 429
     3. Verifies credentials with bcrypt
     4. On failed attempt:
        - 1st & 2nd attempt: Returns HTTP 401 with remaining attempts warning
        - 3rd attempt: Locks account for 1 year, resets counter, dispatches emergency 6-digit unlock code via email, returns HTTP 423
-    5. On success: Clears failed attempts & locked status, issues JWT token
+    5. On success: Clears failed attempts, registers device session in user_sessions, mints JWT token with sid claim
     """
     email_clean = payload.email.strip().lower()
     user = db.query(UserModel).filter(UserModel.email == email_clean).first()
@@ -435,10 +438,32 @@ def login_user(
         user.locked_until = None
         db.flush()
 
-        token = create_access_token({"sub": user.id, "email": user.email})
+        # Requirement 1 & 2: Device Fingerprinting & Session Registry
+        fp = parse_device_fingerprint(request, client_device_id=payload.device_id)
+        session_record = UserSessionModel(
+            user_id=user.id,
+            device_id=fp["device_id"],
+            device_name=fp["device_name"],
+            browser=fp["browser"],
+            os=fp["os"],
+            ip_address=fp["ip_address"],
+            location=fp["location"],
+            status="active"
+        )
+        db.add(session_record)
+        db.flush()
+
+        token = create_access_token(
+            {"sub": user.id, "email": user.email},
+            session_id=session_record.id
+        )
+        db.commit()
+
         return {
             "access_token": token,
             "token_type": "bearer",
+            "session_id": session_record.id,
+            "device_id": fp["device_id"],
             "is_verified": user.is_verified,
             "user": user.to_dict()
         }
@@ -820,6 +845,86 @@ def confirm_password_reset(
         "message": "Password successfully updated and account unlocked. You may now log in with your new credentials.",
         "is_locked": False,
         "audit_timestamp": audit_timestamp
+    }
+
+# ==========================================
+# MULTI-DEVICE SESSION MANAGEMENT ENDPOINTS
+# ==========================================
+
+@app.get("/api/sessions", tags=["Session Security"])
+def list_active_sessions(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 3: Return all currently active device sessions for authenticated user.
+    Flags is_current = True for the caller's workstation session.
+    """
+    current_sid = getattr(current_user, "_current_session_id", None)
+    active_sessions = (
+        db.query(UserSessionModel)
+        .filter(
+            UserSessionModel.user_id == current_user.id,
+            UserSessionModel.status == "active"
+        )
+        .order_by(UserSessionModel.last_active.desc())
+        .all()
+    )
+    return [s.to_dict(current_session_id=current_sid) for s in active_sessions]
+
+@app.delete("/api/sessions/others", tags=["Session Security"])
+def revoke_other_sessions(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 3: Invalidate all active sessions except the current workstation.
+    """
+    current_sid = getattr(current_user, "_current_session_id", None)
+    query = db.query(UserSessionModel).filter(
+        UserSessionModel.user_id == current_user.id,
+        UserSessionModel.status == "active"
+    )
+    if current_sid:
+        query = query.filter(UserSessionModel.id != current_sid)
+
+    revoked_count = query.update({"status": "revoked"}, synchronize_session=False)
+    db.commit()
+
+    return {
+        "message": "All other active device sessions have been terminated.",
+        "terminated_count": revoked_count
+    }
+
+@app.delete("/api/sessions/{session_id}", tags=["Session Security"])
+def revoke_session(
+    session_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Requirement 3: Remotely revoke and invalidate a specific device session.
+    """
+    session_record = (
+        db.query(UserSessionModel)
+        .filter(
+            UserSessionModel.id == session_id,
+            UserSessionModel.user_id == current_user.id
+        )
+        .first()
+    )
+    if not session_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or belongs to another account."
+        )
+
+    session_record.status = "revoked"
+    db.commit()
+    return {
+        "message": f"Device session ({session_record.device_name}) has been revoked.",
+        "session_id": session_id,
+        "status": "revoked"
     }
 
 # ==========================================

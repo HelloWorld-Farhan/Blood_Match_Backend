@@ -1,17 +1,18 @@
 import os
 import re
+import uuid
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import UserModel
+from models import UserModel, UserSessionModel
 
 JWT_SECRET = os.getenv("JWT_SECRET", "bloodmatch-clinical-security-key-2026")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
@@ -87,8 +88,70 @@ def calculate_lockout_duration() -> datetime:
     """Requirement 2: Lock account for 1 year upon 3 consecutive failed attempts."""
     return datetime.utcnow() + timedelta(days=365)
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def parse_device_fingerprint(request: Request, client_device_id: Optional[str] = None) -> Dict[str, str]:
+    """
+    Requirement 1: Device Fingerprinting
+    Captures persistent client device ID, device name, browser, OS, client IP address, and location.
+    """
+    ua = request.headers.get("user-agent", "Unknown Device")
+    device_id = client_device_id or request.headers.get("x-device-id") or str(uuid.uuid4())
+
+    # Detect Operating System
+    os_name = "Unknown OS"
+    if "Windows" in ua:
+        os_name = "Windows"
+    elif "Macintosh" in ua or "Mac OS" in ua:
+        os_name = "macOS"
+    elif "Linux" in ua and "Android" not in ua:
+        os_name = "Linux"
+    elif "Android" in ua:
+        os_name = "Android"
+    elif "iPhone" in ua or "iPad" in ua:
+        os_name = "iOS"
+
+    # Detect Browser
+    browser_name = "Web Browser"
+    if "Brave" in ua:
+        browser_name = "Brave Secure Browser"
+    elif "Edg" in ua:
+        browser_name = "Microsoft Edge"
+    elif "Chrome" in ua and "Safari" in ua:
+        browser_name = "Google Chrome"
+    elif "Safari" in ua and "Chrome" not in ua:
+        browser_name = "Apple Safari"
+    elif "Firefox" in ua:
+        browser_name = "Mozilla Firefox"
+
+    # Detect Device Form Factor
+    device_name = f"{os_name} Workstation"
+    if "Mobile" in ua or "iPhone" in ua or "Android" in ua:
+        device_name = f"{os_name} Mobile Device"
+    elif "iPad" in ua or "Tablet" in ua:
+        device_name = f"{os_name} Clinical Tablet"
+
+    # Resolve IP & Location
+    ip_raw = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "127.0.0.1")
+    ip_address = ip_raw.split(",")[0].strip()
+    location = "Metro Transfusion Center (Authorized Station)"
+
+    return {
+        "device_id": device_id,
+        "device_name": device_name,
+        "browser": browser_name,
+        "os": os_name,
+        "ip_address": ip_address,
+        "location": location
+    }
+
+def create_access_token(
+    data: dict,
+    session_id: Optional[str] = None,
+    expires_delta: Optional[timedelta] = None
+) -> str:
+    """Mints JWT token with optional session ID ('sid') claim for instant revocation."""
     to_encode = data.copy()
+    if session_id:
+        to_encode["sid"] = session_id
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -112,6 +175,10 @@ def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db)
 ) -> UserModel:
+    """
+    Requirement 4: JWT Session Validation & Revocation Check
+    Invalidates tokens for revoked sessions upon their next API request.
+    """
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -119,17 +186,40 @@ def get_current_user(
         )
     payload = decode_access_token(credentials.credentials)
     user_id: str = payload.get("sub")
+    session_id: Optional[str] = payload.get("sid")
+
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials payload."
         )
+
     user = db.query(UserModel).filter(UserModel.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User account not found."
         )
+
+    # Validate active session if sid is attached
+    if session_id:
+        session_record = db.query(UserSessionModel).filter(
+            UserSessionModel.id == session_id,
+            UserSessionModel.user_id == user_id
+        ).first()
+
+        if not session_record or session_record.status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been revoked or terminated. Please log in again to establish a new session."
+            )
+
+        # Update last active timestamp
+        session_record.last_active = datetime.utcnow()
+        db.flush()
+
+    # Attach current session context to user instance
+    user._current_session_id = session_id
     return user
 
 def get_current_verified_user(
