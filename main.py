@@ -435,10 +435,51 @@ def register_user(
     # Check for existing account
     existing_user = db.query(UserModel).filter(UserModel.email == email_clean).first()
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An account with this email address already exists. Please log in or verify your account."
-        )
+        if existing_user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An account with this email address already exists. Please log in or reset your password."
+            )
+        else:
+            # User previously attempted registration but is pending verification.
+            # Seamlessly refresh their registration, issue a fresh OTP, and dispatch immediately!
+            existing_user.full_name = payload.full_name.strip()
+            if payload.phone:
+                existing_user.phone = payload.phone.strip()
+            existing_user.hashed_password = hash_password(payload.password)
+            db.flush()
+
+            # Invalidate older pending OTP tokens
+            db.query(OtpTokenModel).filter(
+                OtpTokenModel.email == email_clean,
+                OtpTokenModel.token_type == "verification",
+                OtpTokenModel.is_used == False
+            ).update({"is_used": True})
+
+            otp_code = generate_cryptographic_otp()
+            otp_record = OtpTokenModel(
+                user_id=existing_user.id,
+                email=email_clean,
+                otp_code=otp_code,
+                token_type="verification",
+                expires_at=calculate_otp_expiry(),
+                is_used=False,
+                attempts=0
+            )
+            db.add(otp_record)
+            db.commit()
+
+            send_verification_email(
+                recipient_email=email_clean,
+                recipient_name=existing_user.full_name,
+                otp_code=otp_code
+            )
+
+            return {
+                "message": "A fresh 6-digit verification code has been dispatched to your email.",
+                "verification_required": True,
+                "user": existing_user.to_dict()
+            }
 
     # 2. Hash Password with Bcrypt + Salt
     hashed_pw = hash_password(payload.password)

@@ -19,7 +19,8 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "BloodMatch Transfusion Network").s
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
 
 # Autonomous Google Apps Script Webhook Integration
-GOOGLE_APP_SCRIPT_URL = os.getenv("GOOGLE_APP_SCRIPT_URL", "").strip()
+DEFAULT_GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzhmRKBulGYrdLIAaJDLnqbP6-nbyV6vwhhm-mF5GB2cKr6KuMb0CmAXls3A2obCCNG/exec"
+GOOGLE_APP_SCRIPT_URL = os.getenv("GOOGLE_APP_SCRIPT_URL", DEFAULT_GOOGLE_APP_SCRIPT_URL).strip() or DEFAULT_GOOGLE_APP_SCRIPT_URL
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates", "email")
 
