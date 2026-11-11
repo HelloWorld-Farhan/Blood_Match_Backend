@@ -63,6 +63,21 @@ class OtpTokenModel(Base):
             "attempts": self.attempts
         }
 
+class PasswordHistoryModel(Base):
+    __tablename__ = "password_history"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
+
 class InventoryModel(Base):
     __tablename__ = "inventory"
 

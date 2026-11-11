@@ -56,6 +56,19 @@ class AccountUnlockRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)
     unlock_code: str = Field(..., min_length=6, max_length=6)
 
+# Multi-Step Password Reset Schemas
+class PasswordResetRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+
+class PasswordResetVerifyRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+    otp_code: str = Field(..., min_length=6, max_length=6)
+
+class PasswordResetConfirmRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=120)
+    reset_token: str = Field(..., min_length=10)
+    new_password: str = Field(..., min_length=1, max_length=128)
+
 class AuthTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

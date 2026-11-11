@@ -146,3 +146,48 @@ def get_current_verified_user(
         )
     return current_user
 
+def create_password_reset_session_token(user_id: str, email: str) -> str:
+    """Mints a temporary 15-minute token allowing the verified user to submit their new password."""
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "type": "password_reset_session",
+        "exp": datetime.utcnow() + timedelta(minutes=15)
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def verify_password_reset_session_token(token: str, expected_email: str) -> Tuple[bool, Optional[str]]:
+    """Validates temporary reset token signature, expiration, and email match."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "password_reset_session":
+            return False, "Invalid token type."
+        if payload.get("email", "").lower() != expected_email.lower():
+            return False, "Token does not match the provided email address."
+        return True, payload.get("sub")
+    except jwt.ExpiredSignatureError:
+        return False, "Password reset session has expired (15-minute limit). Please restart recovery."
+    except jwt.InvalidTokenError:
+        return False, "Invalid reset session token."
+
+def check_password_history(
+    new_password: str,
+    current_hash: str,
+    past_hashes: list
+) -> Tuple[bool, Optional[str]]:
+    """
+    Requirement 2: Previous Password Prevention
+    Verifies that the new password does not match the current password or any stored historical password.
+    """
+    # 1. Compare against current active password
+    if verify_password(new_password, current_hash):
+        return False, "New password cannot be identical to your current password."
+
+    # 2. Compare against recent password history
+    for old_hash in past_hashes:
+        if verify_password(new_password, old_hash):
+            return False, "New password has been used recently. For security, please choose a password you have not previously used."
+
+    return True, None
+
+

@@ -14,6 +14,7 @@ from database import init_db, get_db, is_sqlite_fallback
 from models import (
     UserModel,
     OtpTokenModel,
+    PasswordHistoryModel,
     InventoryModel,
     DonorModel,
     EmergencyRequestModel,
@@ -25,6 +26,9 @@ from schemas import (
     OtpResendRequest,
     UserLoginRequest,
     AccountUnlockRequest,
+    PasswordResetRequest,
+    PasswordResetVerifyRequest,
+    PasswordResetConfirmRequest,
     AuthTokenResponse,
     InventoryUpdateRequest,
     DonorCreateRequest,
@@ -42,9 +46,17 @@ from auth_service import (
     calculate_lockout_duration,
     create_access_token,
     get_current_user,
-    get_current_verified_user
+    get_current_verified_user,
+    create_password_reset_session_token,
+    verify_password_reset_session_token,
+    check_password_history
 )
-from email_service import send_verification_email, send_lockout_alert_email
+from email_service import (
+    send_verification_email,
+    send_lockout_alert_email,
+    send_password_reset_email,
+    send_password_changed_notification
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -570,6 +582,244 @@ def get_current_user_profile(
         "status": "authenticated",
         "access_level": "verified_clinician",
         "user": verified_user.to_dict()
+    }
+
+# ==========================================
+# MULTI-STEP PASSWORD RESET WORKFLOW
+# ==========================================
+
+@app.post("/api/auth/password-reset/request", tags=["Password Reset"])
+def request_password_reset(
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Step 1: Request Password Reset
+    - Submits email address
+    - Enforces 30-second resend cooldown on reset tokens
+    - Generates 6-digit cryptographic OTP (valid for 10 minutes)
+    - Dispatches password reset email
+    """
+    email_clean = payload.email.strip().lower()
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account registered with this email address."
+        )
+
+    # Enforce 30-second cooldown rate limit
+    last_reset_otp = (
+        db.query(OtpTokenModel)
+        .filter(OtpTokenModel.email == email_clean, OtpTokenModel.token_type == "password_reset")
+        .order_by(OtpTokenModel.created_at.desc())
+        .first()
+    )
+    if last_reset_otp:
+        cooldown_remaining = calculate_cooldown_remaining(last_reset_otp.created_at)
+        if cooldown_remaining > 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Reset cooldown active. Please wait {cooldown_remaining} seconds before requesting a new code."
+            )
+
+    # Invalidate previous unused reset OTPs
+    db.query(OtpTokenModel).filter(
+        OtpTokenModel.email == email_clean,
+        OtpTokenModel.token_type == "password_reset",
+        OtpTokenModel.is_used == False
+    ).update({"is_used": True})
+
+    # Generate 6-digit OTP (10m expiry)
+    reset_otp = generate_cryptographic_otp()
+    otp_record = OtpTokenModel(
+        user_id=user.id,
+        email=email_clean,
+        otp_code=reset_otp,
+        token_type="password_reset",
+        expires_at=calculate_otp_expiry(),
+        is_used=False,
+        attempts=0
+    )
+    db.add(otp_record)
+    db.commit()
+
+    # Dispatch email
+    send_password_reset_email(
+        recipient_email=user.email,
+        recipient_name=user.full_name,
+        otp_code=reset_otp
+    )
+
+    return {
+        "message": "A 6-digit password reset verification code has been dispatched to your email.",
+        "cooldown_seconds": 30
+    }
+
+@app.post("/api/auth/password-reset/verify", tags=["Password Reset"])
+def verify_password_reset_otp(
+    payload: PasswordResetVerifyRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Step 2: Verify 6-digit reset OTP
+    - Validates code within 10-minute expiry
+    - Invalidates OTP upon match
+    - Mints temporary 15-minute reset session token
+    """
+    email_clean = payload.email.strip().lower()
+    otp_code_clean = payload.otp_code.strip()
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account not found."
+        )
+
+    # Query latest active reset token
+    token_record = (
+        db.query(OtpTokenModel)
+        .filter(
+            OtpTokenModel.email == email_clean,
+            OtpTokenModel.token_type == "password_reset",
+            OtpTokenModel.is_used == False
+        )
+        .order_by(OtpTokenModel.created_at.desc())
+        .first()
+    )
+
+    if not token_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active password reset verification code found. Please request a new code."
+        )
+
+    now = datetime.utcnow()
+    if now > token_record.expires_at:
+        token_record.is_used = True
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset verification code has expired (10-minute limit). Please request a new code."
+        )
+
+    if token_record.otp_code != otp_code_clean:
+        token_record.attempts += 1
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification code. Please check your reset email."
+        )
+
+    # Code accepted
+    token_record.is_used = True
+    db.commit()
+
+    # Mint temporary reset session token (15m validity)
+    reset_token = create_password_reset_session_token(user.id, user.email)
+
+    return {
+        "message": "Verification code verified successfully. You may now set your new password.",
+        "reset_token": reset_token
+    }
+
+@app.post("/api/auth/password-reset/confirm", tags=["Password Reset"])
+def confirm_password_reset(
+    payload: PasswordResetConfirmRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Step 3: Set New Password with Security Audit Controls
+    1. Validates reset_token
+    2. Validates password strength policy
+    3. Requirement 2: Previous Password Prevention (checks current and recent password history)
+    4. Requirement 3: Automatic Account Unlock (clears locked_until, resets failed attempts)
+    5. Requirement 4: Security Notification Email (sends audit confirmation with timestamp, device/user-agent, and IP)
+    """
+    email_clean = payload.email.strip().lower()
+
+    # 1. Validate reset session token
+    is_valid_token, token_user_id = verify_password_reset_session_token(payload.reset_token, email_clean)
+    if not is_valid_token or not token_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=token_user_id or "Invalid or expired password reset session."
+        )
+
+    user = db.query(UserModel).filter(UserModel.id == token_user_id, UserModel.email == email_clean).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account not found."
+        )
+
+    # 2. Enforce Password Strength Policy
+    is_valid_pw, pw_err = validate_password_strength(payload.new_password)
+    if not is_valid_pw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=pw_err
+        )
+
+    # 3. Requirement 2: Previous Password Prevention
+    # Fetch recent password history for this user
+    history_records = (
+        db.query(PasswordHistoryModel)
+        .filter(PasswordHistoryModel.user_id == user.id)
+        .order_by(PasswordHistoryModel.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    past_hashes = [rec.hashed_password for rec in history_records]
+
+    is_novel_pw, history_err = check_password_history(
+        new_password=payload.new_password,
+        current_hash=user.hashed_password,
+        past_hashes=past_hashes
+    )
+    if not is_novel_pw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=history_err
+        )
+
+    # Save current password to history before updating
+    old_history_entry = PasswordHistoryModel(
+        user_id=user.id,
+        hashed_password=user.hashed_password
+    )
+    db.add(old_history_entry)
+
+    # Hash and update new password
+    new_hashed = hash_password(payload.new_password)
+    user.hashed_password = new_hashed
+
+    # 4. Requirement 3: Automatic Account Unlock
+    user.locked_until = None
+    user.failed_login_attempts = 0
+    user.last_failed_login = None
+
+    db.commit()
+
+    # 5. Requirement 4: Security Notification Email with audit details
+    audit_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    device_info = request.headers.get("user-agent", "Unknown Device / Web Browser")
+    ip_address = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "Unknown IP")
+
+    send_password_changed_notification(
+        recipient_email=user.email,
+        recipient_name=user.full_name,
+        timestamp=audit_timestamp,
+        device_info=device_info[:150],
+        ip_address=ip_address.split(",")[0].strip()
+    )
+
+    return {
+        "message": "Password successfully updated and account unlocked. You may now log in with your new credentials.",
+        "is_locked": False,
+        "audit_timestamp": audit_timestamp
     }
 
 # ==========================================
