@@ -18,6 +18,17 @@ This directory contains the production-grade Google Apps Script email engine (`C
 
 ---
 
+### Testing Directly in Google Apps Script Editor
+
+If you want to test email sending directly from inside the editor before deploying:
+1. Select **`myFunction`** or **`testEmailWebhook`** from the function dropdown (located next to the **Debug** button in the top toolbar).
+2. Click **Run**.
+3. Google will ask you to authorize access for the first time:
+   - Click **Review permissions** $\rightarrow$ select your Google account $\rightarrow$ click **Advanced** $\rightarrow$ click **Go to BloodMatch (unsafe)** $\rightarrow$ click **Allow**.
+4. Check your Gmail inbox: you will receive a test BloodMatch 6-digit verification code email!
+
+---
+
 ## Deployment Steps in Google Apps Script
 
 1. **Open the Google Apps Script Editor**:

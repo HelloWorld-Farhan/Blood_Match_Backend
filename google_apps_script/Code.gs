@@ -21,6 +21,39 @@
 var SENDER_NAME = "BloodMatch Transfusion Network";
 
 /**
+ * =========================================================================
+ * TOOLBAR TEST RUNNER & MYFUNCTION COMPATIBILITY
+ * When you click the "Run" button in the Google Apps Script editor, this runs.
+ * =========================================================================
+ */
+function myFunction() {
+  return testEmailWebhook();
+}
+
+function testEmailWebhook() {
+  var currentEmail = Session.getActiveUser().getEmail();
+  var recipient = currentEmail ? currentEmail : "test@bloodmatch.io";
+  
+  Logger.log("Initiating BloodMatch test verification email to: " + recipient);
+  
+  var mockEvent = {
+    postData: {
+      contents: JSON.stringify({
+        action: "otp_verification",
+        to: recipient,
+        name: "Dr. Farhan Khalid",
+        otp_code: "839201"
+      })
+    }
+  };
+  
+  var result = doPost(mockEvent);
+  var output = result.getContent();
+  Logger.log("Execution Output: " + output);
+  return output;
+}
+
+/**
  * HTTP GET Handler (Health Check & Connectivity Ping)
  */
 function doGet(e) {
@@ -40,6 +73,7 @@ function doGet(e) {
     ]
   };
   
+  Logger.log("[BloodMatch Gateway] Health check passed. Webhook operational.");
   return ContentService.createTextOutput(JSON.stringify(responseData))
     .setMimeType(ContentService.MimeType.JSON);
 }
