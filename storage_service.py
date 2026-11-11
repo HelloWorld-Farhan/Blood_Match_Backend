@@ -267,3 +267,4 @@ def list_user_assets(authenticated_email: str, category: Optional[str] = None) -
     except Exception as exc:
         logger.error(f"Failed to list assets from R2 with prefix {prefix}: {exc}")
         return []
+
