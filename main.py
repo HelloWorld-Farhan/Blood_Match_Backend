@@ -605,9 +605,9 @@ def verify_otp(
     user.verified_at = datetime.utcnow()
     db.flush()
 
-    # Dispatch Welcome & Profile Activation Email (Minimal & Button-Free)
+    # Dispatch Welcome & Profile Activation Email (Clean, Relevant & Minimal)
     try:
-        send_welcome_email(user.email, user.full_name)
+        send_welcome_email(user.email, user.full_name, user.custom_id)
     except Exception as exc:
         logger.warning(f"Welcome email dispatch failed: {exc}")
 

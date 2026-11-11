@@ -300,13 +300,8 @@ WELCOME_HTML_FALLBACK = """
     .title { font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }
     .greeting { font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }
     .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
-    .status-card { background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }
-    .status-title { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-    .status-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; }
-    .status-row:last-child { border-bottom: none; }
-    .status-label { color: #75808A; font-weight: 500; }
-    .status-val { color: #1A1D20; font-weight: 700; }
-    .badge-active { color: #047857; font-weight: 700; }
+    .member-box { background: #FDF9F8; border: 1px solid #D72638; border-radius: 12px; padding: 14px 18px; margin: 16px 0; font-size: 13px; color: #1A1D20; }
+    .member-id { font-family: monospace; font-weight: 800; color: #D72638; font-size: 15px; }
     .notice-box { background: #F0FDF4; border-left: 3px solid #10B981; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #166534; line-height: 1.5; margin-top: 20px; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
   </style>
@@ -318,16 +313,15 @@ WELCOME_HTML_FALLBACK = """
       <div class="content">
         <h1 class="title">Profile Verified & Activated</h1>
         <div class="greeting">Welcome, {{ name }}</div>
-        <p class="paragraph">Your profile has been authenticated with the BloodMatch Emergency Transfusion Network. You now have authorized clearance to access our clinical coordination portal, monitor 8-group cryo-vault inventory, and coordinate rapid donor dispatch.</p>
-        <div class="status-card">
-          <div class="status-title">Credentials Overview</div>
-          <div class="status-row"><span class="status-label">Network Status</span><span class="status-val badge-active">● Active Verified Member</span></div>
-          <div class="status-row"><span class="status-label">Assigned Facility</span><span class="status-val">Metro Transfusion Cryo-Vault 01</span></div>
-          <div class="status-row"><span class="status-label">Encryption Level</span><span class="status-val">Tier-4 Encrypted • HIPAA Compliant</span></div>
+        <p class="paragraph">Your profile has been successfully verified and activated on the BloodMatch platform. You now have full access to your personal dashboard, 8-group cross-match matrix, and donor coordination services.</p>
+        {% if member_id %}
+        <div class="member-box">
+          <strong>Your Unique Member ID:</strong> <span class="member-id">{{ member_id }}</span>
         </div>
-        <div class="notice-box">Your credentials are active. To begin managing trauma transfers or voluntary registries, simply open the portal on your authenticated clinical terminal.</div>
+        {% endif %}
+        <div class="notice-box">Your account is ready. You can log into your account to manage your profile and view compatibility insights anytime.</div>
       </div>
-      <div class="footer">BloodMatch Clinical Transfusion Systems • Emergency Hotline: +1 (800) 555-BLOOD</div>
+      <div class="footer">BloodMatch Emergency Transfusion Network</div>
     </div>
   </div>
 </body>
@@ -392,9 +386,12 @@ WELCOME_TEXT_TEMPLATE = """
 Welcome to BloodMatch Emergency Transfusion Network
 Hello, {{ name }}
 
-Your profile has been verified and activated.
-Assigned Facility: Metro Transfusion Cryo-Vault 01
-Security Level: Tier-4 Encrypted • HIPAA Compliant
+Your profile has been successfully verified and activated on the BloodMatch platform.
+You now have full access to your personal dashboard, 8-group cross-match matrix, and donor coordination services.
+{% if member_id %}Member ID: {{ member_id }}{% endif %}
+
+Thank you for being part of the BloodMatch community.
+BloodMatch Emergency Transfusion Network
 """
 
 NEW_SESSION_HTML_FALLBACK = """
@@ -684,24 +681,23 @@ def send_2fa_login_email(
         return True
     return _dispatch_smtp(f"BloodMatch 2FA Login Code: {otp_code}", recipient_email, rendered_text, rendered_html)
 
-def send_welcome_email(recipient_email: str, recipient_name: str) -> bool:
-    """Dispatches the welcome & thank-you email once profile is verified."""
+def send_welcome_email(recipient_email: str, recipient_name: str, member_id: Optional[str] = None) -> bool:
+    """Dispatches the clean, relevant welcome & thank-you email once profile is verified."""
     # 1. Primary delivery: Autonomous Google Apps Script Webhook
     gas_payload = {
         "to": recipient_email,
         "name": recipient_name,
-        "facility": "Metro Transfusion Cryo-Vault 01",
-        "security_level": "Tier-4 Encrypted • HIPAA Compliant"
+        "member_id": member_id or ""
     }
     if _dispatch_google_apps_script("welcome_thankyou", gas_payload):
         return True
 
     # 2. Fallback: SMTP Transport or Simulated Local Logging
-    rendered_html = jinja_welcome_html.render(name=recipient_name)
-    rendered_text = jinja_welcome_text.render(name=recipient_name)
+    rendered_html = jinja_welcome_html.render(name=recipient_name, member_id=member_id)
+    rendered_text = jinja_welcome_text.render(name=recipient_name, member_id=member_id)
 
     if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
-        logger.info(f"[WELCOME EMAIL DISPATCH] Recipient: {recipient_email} | Name: {recipient_name}")
+        logger.info(f"[WELCOME EMAIL DISPATCH] Recipient: {recipient_email} | Name: {recipient_name} | Member ID: {member_id}")
         return True
     return _dispatch_smtp("Welcome to BloodMatch Emergency Transfusion Network", recipient_email, rendered_text, rendered_html)
 

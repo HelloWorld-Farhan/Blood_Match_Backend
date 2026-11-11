@@ -130,11 +130,11 @@ class TestGoogleAppsScriptEngine(unittest.TestCase):
         mock_response.json.return_value = {"success": True, "action": "welcome_thankyou"}
         mock_post.return_value = mock_response
 
-        result = email_service.send_welcome_email(self.test_email, self.test_name)
+        result = email_service.send_welcome_email(self.test_email, self.test_name, "BM-8841-A9")
         self.assertTrue(result)
         call_args = mock_post.call_args[1]
         self.assertEqual(call_args["json"]["action"], "welcome_thankyou")
-        self.assertEqual(call_args["json"]["facility"], "Metro Transfusion Cryo-Vault 01")
+        self.assertEqual(call_args["json"]["member_id"], "BM-8841-A9")
 
     @patch("email_service.requests.post")
     def test_08_fallback_to_simulation_when_webhook_fails(self, mock_post):

@@ -466,39 +466,32 @@ function buildLockoutEmail(name, payload) {
  * 7. Verified Profile Welcome & Activation
  */
 function buildWelcomeEmail(name, payload) {
-  var facility = payload.facility || "Metro Transfusion Cryo-Vault 01";
-  var securityLevel = payload.security_level || "Tier-4 Encrypted • HIPAA Compliant";
+  var memberId = payload.member_id || payload.custom_id || "";
   var subject = "Welcome to BloodMatch Emergency Transfusion Network";
 
   var textBody = 
     "BloodMatch Emergency Transfusion Network\n" +
     "Profile Verified & Activated\n\n" +
     "Welcome, " + name + ",\n\n" +
-    "Your profile has been authenticated with the BloodMatch Emergency Transfusion Network. You now have authorized clearance to access our clinical coordination portal, monitor 8-group cryo-vault inventory, and coordinate rapid donor dispatch.\n\n" +
-    "Network Status: Active Verified Member\n" +
-    "Assigned Facility: " + facility + "\n" +
-    "Encryption Level: " + securityLevel + "\n\n" +
-    "BloodMatch Emergency Transfusion Network • Automated Clinical Dispatch Node";
+    "Your profile has been successfully verified and activated on the BloodMatch platform. You now have full access to your personal dashboard, 8-group cross-match matrix, and donor coordination services.\n\n" +
+    (memberId ? "Member ID: " + memberId + "\n\n" : "") +
+    "Thank you for being part of the BloodMatch community.\n\n" +
+    "BloodMatch Emergency Transfusion Network";
 
   var htmlContent =
     '<div class="header"><span class="brand-pill">BloodMatch Network Welcome</span></div>' +
     '<div class="content">' +
       '<h1 class="title">Profile Verified & Activated</h1>' +
       '<div class="greeting">Welcome, ' + escapeHtml(name) + '</div>' +
-      '<p class="paragraph">Your profile has been authenticated with the BloodMatch Emergency Transfusion Network. You now have authorized clearance to access our clinical coordination portal, monitor 8-group cryo-vault inventory, and coordinate rapid donor dispatch.</p>' +
-      '<div class="audit-card">' +
-        '<div class="audit-title">Credentials Overview</div>' +
-        '<div class="audit-row"><span class="audit-label">Network Status</span><span class="audit-val" style="color: #047857;">● Active Verified Member</span></div>' +
-        '<div class="audit-row"><span class="audit-label">Assigned Facility</span><span class="audit-val">' + escapeHtml(facility) + '</span></div>' +
-        '<div class="audit-row"><span class="audit-label">Encryption Level</span><span class="audit-val">' + escapeHtml(securityLevel) + '</span></div>' +
-      '</div>' +
+      '<p class="paragraph">Your profile has been successfully verified and activated on the BloodMatch platform. You now have full access to your personal dashboard, 8-group cross-match matrix, and donor coordination services.</p>' +
+      (memberId ? '<div class="notice-box" style="background: #FDF9F8; border-color: #D72638; color: #1A1D20;"><strong>Your Unique Member ID:</strong> <span style="font-family: monospace; font-weight: 700; color: #D72638;">' + escapeHtml(memberId) + '</span></div>' : '') +
       '<div class="notice-box" style="background: #F0FDF4; border-color: #10B981; color: #166534;">' +
-        '<strong>Clinical Readiness:</strong> Always adhere to transfusion safety guidelines and double-check donor compatibility codes prior to cryo-reserve mobilization.' +
+        '<strong>Account Ready:</strong> You are all set. You can now log into your account to manage your profile and view compatibility insights anytime.' +
       '</div>' +
     '</div>' +
     '<div class="footer">' +
-      'BloodMatch Emergency Transfusion Network • Automated Clinical Dispatch Node<br>' +
-      'Assigned Facility Clearance: Active' +
+      'BloodMatch Emergency Transfusion Network<br>' +
+      'If you have questions or need assistance, contact our support team.' +
     '</div>';
 
   return {
