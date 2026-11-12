@@ -1554,14 +1554,14 @@ def verify_current_password_endpoint(
     db: Session = Depends(get_db)
 ):
     """
-    Validates practitioner's current password prior to unlocking new password fields.
+    Validates user's current password prior to unlocking new password fields.
     """
     email_clean = payload.email.strip().lower()
     user = db.query(UserModel).filter(UserModel.email == email_clean).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Practitioner account not found."
+            detail="Account not found. Please register or sign in."
         )
 
     if not verify_password(payload.current_password, user.hashed_password):
@@ -1595,7 +1595,7 @@ def update_password_by_previous(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Practitioner account not found."
+            detail="Account not found. Please register or sign in."
         )
 
     # 1. Verify Current Password
