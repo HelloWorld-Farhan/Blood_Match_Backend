@@ -1072,6 +1072,31 @@ def login_user(
         detail="Account locked due to 3 consecutive failed login attempts. An emergency 6-digit unlock code has been dispatched to your email (valid for 10 minutes)."
     )
 
+@app.post("/api/auth/logout", tags=["Authentication"])
+def logout_user(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Terminates active session and marks session revoked on explicit logout.
+    """
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        raw_token = auth_header[7:].strip()
+        try:
+            payload = decode_access_token(raw_token)
+            sid = payload.get("sid")
+            user_id = payload.get("sub")
+            if sid and user_id:
+                db.query(UserSessionModel).filter(
+                    UserSessionModel.id == sid,
+                    UserSessionModel.user_id == user_id
+                ).update({"status": "revoked"})
+                db.commit()
+        except Exception as exc:
+            logger.warning(f"Session revocation on logout note: {exc}")
+    return {"status": "success", "message": "Logged out successfully. Workstation session revoked."}
+
 @app.post("/api/auth/unlock-account", tags=["Authentication"])
 def unlock_account(
     payload: AccountUnlockRequest,
