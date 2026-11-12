@@ -74,10 +74,21 @@ EMAIL_HTML_FALLBACK = """
         <h1 class="title">Account Verification Code</h1>
         <div class="greeting">Hello, {{ name }}</div>
         <p class="paragraph">Thank you for registering with the BloodMatch Transfusion Network. Please use the following single-use verification code in the application to activate your clinical profile.</p>
-        <div class="otp-container">
-          <div class="otp-label">Single-Use Security Token</div>
-          <div class="otp-code">{{ otp_code }}</div>
-          <div class="otp-validity">⏱ Valid for 10 minutes • Single device session</div>
+        <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 16px; padding: 22px 16px; text-align: center; margin: 22px 0;">
+          <div style="font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">Code Requested</div>
+          <table align="center" border="0" cellpadding="0" cellspacing="6" style="margin: 0 auto;">
+            <tr>
+              {% for d in otp_code %}
+              <td align="center" style="width: 44px; height: 50px; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 10px; font-family: monospace, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 26px; font-weight: 800; color: #1E293B; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+                {{ d }}
+              </td>
+              {% endfor %}
+            </tr>
+          </table>
+          <div style="margin-top: 16px;">
+            <span style="display: inline-block; padding: 8px 22px; background: #0284C7; color: #FFFFFF; border-radius: 24px; font-size: 13px; font-weight: 700; text-decoration: none;">Copy code</span>
+          </div>
+          <div style="margin-top: 12px; font-size: 12px; color: #64748B; font-weight: 600;">⏱ Valid for 10 minutes • Single device session</div>
         </div>
         <div class="notice-box"><strong>Security Notice:</strong> Never share this verification token with anyone. BloodMatch personnel will never ask for your authentication codes.</div>
       </div>
@@ -121,10 +132,21 @@ LOCKOUT_HTML_FALLBACK = """
         <h1 class="title">Account Locked</h1>
         <div class="greeting">Attention, {{ name }}</div>
         <p class="paragraph">Your BloodMatch clinical account was automatically locked after <strong>3 consecutive failed password attempts</strong> to safeguard patient records from automated brute-force attacks.</p>
-        <div class="unlock-container">
-          <div class="unlock-label">Emergency Reset / Unlock Code</div>
-          <div class="unlock-code">{{ unlock_code }}</div>
-          <div class="unlock-validity">⏱ Valid for 10 minutes • Clear lockout immediately</div>
+        <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 16px; padding: 22px 16px; text-align: center; margin: 22px 0;">
+          <div style="font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">Code Requested</div>
+          <table align="center" border="0" cellpadding="0" cellspacing="6" style="margin: 0 auto;">
+            <tr>
+              {% for d in unlock_code %}
+              <td align="center" style="width: 44px; height: 50px; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 10px; font-family: monospace, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 26px; font-weight: 800; color: #1E293B; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+                {{ d }}
+              </td>
+              {% endfor %}
+            </tr>
+          </table>
+          <div style="margin-top: 16px;">
+            <span style="display: inline-block; padding: 8px 22px; background: #0284C7; color: #FFFFFF; border-radius: 24px; font-size: 13px; font-weight: 700; text-decoration: none;">Copy code</span>
+          </div>
+          <div style="margin-top: 12px; font-size: 12px; color: #64748B; font-weight: 600;">⏱ Valid for 10 minutes • Clear lockout immediately</div>
         </div>
         <div class="notice-box"><strong>Immediate Action:</strong> Submit this code in the portal to unlock your account. If you did not initiate these login attempts, update your password right away.</div>
       </div>
@@ -168,10 +190,21 @@ RESET_HTML_FALLBACK = """
         <h1 class="title">Password Reset Code</h1>
         <div class="greeting">Hello, {{ name }}</div>
         <p class="paragraph">We received an authentication request to reset your clinical account password. Enter the following 6-digit recovery code in the password recovery modal to verify your identity and set a new password.</p>
-        <div class="otp-container">
-          <div class="otp-label">Password Recovery Token</div>
-          <div class="otp-code">{{ otp_code }}</div>
-          <div class="otp-validity">⏱ Valid for 10 minutes • Single-use</div>
+        <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 16px; padding: 22px 16px; text-align: center; margin: 22px 0;">
+          <div style="font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">Code Requested</div>
+          <table align="center" border="0" cellpadding="0" cellspacing="6" style="margin: 0 auto;">
+            <tr>
+              {% for d in otp_code %}
+              <td align="center" style="width: 44px; height: 50px; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 10px; font-family: monospace, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 26px; font-weight: 800; color: #1E293B; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+                {{ d }}
+              </td>
+              {% endfor %}
+            </tr>
+          </table>
+          <div style="margin-top: 16px;">
+            <span style="display: inline-block; padding: 8px 22px; background: #0284C7; color: #FFFFFF; border-radius: 24px; font-size: 13px; font-weight: 700; text-decoration: none;">Copy code</span>
+          </div>
+          <div style="margin-top: 12px; font-size: 12px; color: #64748B; font-weight: 600;">⏱ Valid for 10 minutes • Single-use recovery token</div>
         </div>
         <div class="notice-box"><strong>Security Notice:</strong> If you did not request a password reset, your credentials may be targeted. Please notify your facility network administrator immediately.</div>
       </div>
@@ -277,10 +310,21 @@ TWO_FACTOR_HTML_FALLBACK = """
         <h1 class="title">Two-Factor Authentication</h1>
         <div class="greeting">Hello, {{ name }}</div>
         <p class="paragraph">A sign-in attempt was initiated from a workstation requiring step-up two-factor verification. Enter the security code below to complete sign in:</p>
-        <div class="otp-container">
-          <div class="otp-label">2FA Login Code</div>
-          <div class="otp-code">{{ otp_code }}</div>
-          <div class="otp-validity">⏱ Valid for 10 minutes • Device Step-Up</div>
+        <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 16px; padding: 22px 16px; text-align: center; margin: 22px 0;">
+          <div style="font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">Code Requested</div>
+          <table align="center" border="0" cellpadding="0" cellspacing="6" style="margin: 0 auto;">
+            <tr>
+              {% for d in otp_code %}
+              <td align="center" style="width: 44px; height: 50px; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 10px; font-family: monospace, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 26px; font-weight: 800; color: #1E293B; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+                {{ d }}
+              </td>
+              {% endfor %}
+            </tr>
+          </table>
+          <div style="margin-top: 16px;">
+            <span style="display: inline-block; padding: 8px 22px; background: #0284C7; color: #FFFFFF; border-radius: 24px; font-size: 13px; font-weight: 700; text-decoration: none;">Copy code</span>
+          </div>
+          <div style="margin-top: 12px; font-size: 12px; color: #64748B; font-weight: 600;">⏱ Valid for 10 minutes • Device Step-Up</div>
         </div>
         <div class="audit-card">
           <div class="audit-title">Access Request Telemetry</div>
@@ -893,13 +937,21 @@ def send_account_deletion_otp_email(recipient_email: str, recipient_name: str, o
         return True
 
     text_body = f"Hello {recipient_name},\n\nWe received an authorization request to permanently delete your BloodMatch account and all associated donor records.\nYour 6-digit deletion authorization code is: {otp_code}\n\nIf you did NOT request this deletion, change your password immediately."
+    cells_html = "".join([f'<td align="center" style="width: 44px; height: 50px; background: #ffffff; border: 1.5px solid #CBD5E1; border-radius: 10px; font-family: monospace; font-size: 26px; font-weight: 800; color: #991b1b; text-align: center;">{d}</td>' for d in str(otp_code).strip()])
     html_body = f"""
     <div style="font-family: sans-serif; max-width: 500px; padding: 24px; border: 1px solid #fee2e2; border-radius: 12px; background: #fff5f5;">
-        <h2 style="color: #991b1b; margin-top: 0;">Account Deletion Authorization</h2>
+        <h2 style="color: #991b1b; margin-top: 0;">Confirm your identity</h2>
         <p>Hello <strong>{recipient_name}</strong>,</p>
-        <p>A request was received to permanently delete your BloodMatch account, donor registrations, and all cloud files.</p>
-        <div style="background: #ffffff; border: 2px dashed #dc2626; border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0;">
-            <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #dc2626;">{otp_code}</span>
+        <p>A request was received to permanently delete your BloodMatch account and clinical records.</p>
+        <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 16px; padding: 20px 16px; text-align: center; margin: 20px 0;">
+            <div style="font-size: 11px; font-weight: 800; color: #991b1b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">Code Requested</div>
+            <table align="center" border="0" cellpadding="0" cellspacing="6" style="margin: 0 auto;">
+                <tr>{cells_html}</tr>
+            </table>
+            <div style="margin-top: 14px;">
+                <span style="display: inline-block; padding: 8px 22px; background: #dc2626; color: #FFFFFF; border-radius: 24px; font-size: 13px; font-weight: 700;">Copy code</span>
+            </div>
+            <div style="margin-top: 10px; font-size: 12px; color: #7f1d1d; font-weight: 600;">⏱ Valid for 10 minutes • Permanent Deletion Authorization</div>
         </div>
         <p style="font-size: 13px; color: #7f1d1d;">This code expires in 10 minutes. If you did not initiate this request, your account may be compromised.</p>
     </div>
