@@ -73,7 +73,7 @@ class TwoFactorVerifyRequest(BaseModel):
 
 class TwoFactorToggleRequest(BaseModel):
     enable_2fa: bool
-    password: str = Field(..., min_length=1)
+    password: Optional[str] = None
 
 class AccountUnlockRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)

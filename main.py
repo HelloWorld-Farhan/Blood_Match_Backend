@@ -859,9 +859,9 @@ def login_user(
             trusted_device.last_used_at = datetime.utcnow()
             db.flush()
 
-        # Requirement 2: Adaptive Step-Up Auth Rule
-        # If 2FA is enabled OR if the current device is unrecognized, require a 6-digit email OTP
-        requires_step_up = user.is_2fa_enabled or (trusted_device is None)
+        # Requirement 2: 2FA Enforcement Rule
+        # If 2FA is enabled on the user account, strictly enforce 6-digit email OTP challenge
+        requires_step_up = bool(user.is_2fa_enabled)
 
         if requires_step_up:
             # Invalidate prior unused 2FA tokens for this email
@@ -1228,13 +1228,14 @@ def toggle_2fa(
     Requirement 3: 2FA Management
     Allows user to enable or disable 2FA with password re-authentication.
     """
-    if not verify_password(payload.password, current_user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Security verification failed: Incorrect password."
-        )
+    if payload.password:
+        if not verify_password(payload.password, current_user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Security verification failed: Incorrect password."
+            )
 
-    current_user.is_2fa_enabled = payload.enable_2fa
+    current_user.is_2fa_enabled = bool(payload.enable_2fa)
     db.commit()
 
     return {
