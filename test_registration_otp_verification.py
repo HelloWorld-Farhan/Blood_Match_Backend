@@ -14,7 +14,8 @@ class TestRegistrationOtpVerification(unittest.TestCase):
 
     def setUp(self):
         self.session = SessionLocal()
-        self.test_email = "clinician.verify@hospital.org"
+        import uuid
+        self.test_email = f"clinician.verify.{uuid.uuid4().hex[:6]}@hospital.org"
         self.session.query(OtpTokenModel).filter(OtpTokenModel.email == self.test_email).delete()
         self.session.query(UserSessionModel).delete()
         self.session.query(UserModel).filter(UserModel.email == self.test_email).delete()

@@ -652,6 +652,7 @@ def register_user(
 def verify_otp(
     payload: OtpVerifyRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """

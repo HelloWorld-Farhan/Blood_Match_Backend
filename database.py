@@ -2,7 +2,7 @@ import os
 import tempfile
 import logging
 from typing import Generator
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, text, inspect, Boolean, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from dotenv import load_dotenv
