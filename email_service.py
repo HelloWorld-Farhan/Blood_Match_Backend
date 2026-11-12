@@ -1,9 +1,11 @@
 import os
 import smtplib
 import logging
-from typing import Optional
+import base64
+from typing import Optional, List
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 import requests
 from jinja2 import Template
 
@@ -613,19 +615,31 @@ def _dispatch_google_apps_script(action: str, payload: dict) -> bool:
         logger.error(f"[GAS WEBHOOK ERROR] Failed to dispatch {action} to {GOOGLE_APP_SCRIPT_URL}: {exc}")
         return False
 
-def _dispatch_smtp(subject: str, recipient_email: str, text_body: str, html_body: str) -> bool:
-    """Internal helper to dispatch MIME multipart emails via SMTP."""
+def _dispatch_smtp(subject: str, recipient_email: str, text_body: str, html_body: str, attachments: Optional[list] = None) -> bool:
+    """Internal helper to dispatch MIME multipart emails via SMTP with optional attachments."""
     if not SMTP_HOST or not SMTP_USER or not SMTP_PASSWORD:
         return True
 
     try:
-        msg = MIMEMultipart("alternative")
+        if attachments:
+            msg = MIMEMultipart("mixed")
+            alt_part = MIMEMultipart("alternative")
+            alt_part.attach(MIMEText(text_body, "plain", "utf-8"))
+            alt_part.attach(MIMEText(html_body, "html", "utf-8"))
+            msg.attach(alt_part)
+
+            for att in attachments:
+                part = MIMEApplication(att["content_bytes"], _subtype="pdf")
+                part.add_header("Content-Disposition", "attachment", filename=att.get("filename", "BloodMatch_Document.pdf"))
+                msg.attach(part)
+        else:
+            msg = MIMEMultipart("alternative")
+            msg.attach(MIMEText(text_body, "plain", "utf-8"))
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
         msg["Subject"] = subject
         msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
         msg["To"] = recipient_email
-
-        msg.attach(MIMEText(text_body, "plain", "utf-8"))
-        msg.attach(MIMEText(html_body, "html", "utf-8"))
 
         if SMTP_PORT == 465:
             with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10) as server:
@@ -1013,9 +1027,12 @@ def send_clinician_donor_roster_email(
     clinician_name: str,
     recipient_blood_type: str,
     roster_items: list,
-    patient_name: Optional[str] = None
+    patient_name: Optional[str] = None,
+    pdf_base64: Optional[str] = None,
+    pdf_filename: Optional[str] = None,
+    dispatch_id: Optional[str] = None
 ) -> bool:
-    """Dispatches top-5 proximity sorted compatible donor roster to the clinician for offline backup."""
+    """Dispatches top proximity sorted compatible donor roster to the clinician for offline backup with optional attached PDF docket."""
     subject = f"Clinical Emergency Donor Roster: {recipient_blood_type} Transfusion"
     
     gas_payload = {
@@ -1026,6 +1043,12 @@ def send_clinician_donor_roster_email(
         "roster_items": roster_items,
         "action": "clinician_donor_roster"
     }
+    if pdf_base64:
+        gas_payload["pdf_base64"] = pdf_base64
+        gas_payload["pdf_filename"] = pdf_filename or f"BloodMatch_Emergency_Docket_{recipient_blood_type}.pdf"
+    if dispatch_id:
+        gas_payload["dispatch_id"] = dispatch_id
+
     if _dispatch_google_apps_script("clinician_donor_roster", gas_payload):
         return True
 
@@ -1098,4 +1121,17 @@ def send_clinician_donor_roster_email(
     </body>
     </html>
     """
-    return _dispatch_smtp(subject, clinician_email, text_body, html_body)
+
+    attachments = []
+    if pdf_base64:
+        try:
+            pdf_bytes = base64.b64decode(pdf_base64)
+            attachments.append({
+                "filename": pdf_filename or f"BloodMatch_Emergency_Docket_{recipient_blood_type}.pdf",
+                "content_bytes": pdf_bytes,
+                "mime_type": "application/pdf"
+            })
+        except Exception as b64_err:
+            logger.warning(f"Could not decode pdf_base64 for SMTP attachment: {b64_err}")
+
+    return _dispatch_smtp(subject, clinician_email, text_body, html_body, attachments=attachments if attachments else None)

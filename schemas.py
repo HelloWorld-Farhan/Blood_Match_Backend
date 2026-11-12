@@ -153,3 +153,6 @@ class EmergencyRosterEmailRequest(BaseModel):
     recipient_blood_type: str = Field(..., min_length=2, max_length=10)
     patient_name: Optional[str] = None
     roster_items: List[dict] = Field(default_factory=list)
+    pdf_base64: Optional[str] = None
+    pdf_filename: Optional[str] = None
+    dispatch_id: Optional[str] = None

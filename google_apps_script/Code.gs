@@ -110,14 +110,27 @@ function doPost(e) {
       return errorResponse("Unsupported or unrecognized action: " + action);
     }
 
-    // Dispatch via Google Apps Script MailApp engine
-    MailApp.sendEmail({
+    // Dispatch via Google Apps Script MailApp engine with optional PDF attachment
+    var mailOptions = {
       to: to,
       subject: emailData.subject,
       body: emailData.textBody,
       htmlBody: emailData.htmlBody,
       name: SENDER_NAME
-    });
+    };
+
+    if (payload.pdf_base64) {
+      try {
+        var pdfBytes = Utilities.base64Decode(payload.pdf_base64);
+        var filename = payload.pdf_filename || ("BloodMatch_Emergency_Docket_" + (payload.recipient_blood_type || "") + ".pdf");
+        var pdfBlob = Utilities.newBlob(pdfBytes, "application/pdf", filename);
+        mailOptions.attachments = [pdfBlob];
+      } catch (attachErr) {
+        Logger.log("[Attachment Warning] Failed to attach PDF docket: " + attachErr);
+      }
+    }
+
+    MailApp.sendEmail(mailOptions);
 
     var successData = {
       success: true,

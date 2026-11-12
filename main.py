@@ -2571,14 +2571,18 @@ def email_clinician_donor_roster(
         clinician_name=payload.clinician_name,
         recipient_blood_type=payload.recipient_blood_type,
         roster_items=payload.roster_items,
-        patient_name=payload.patient_name
+        patient_name=payload.patient_name,
+        pdf_base64=payload.pdf_base64,
+        pdf_filename=payload.pdf_filename,
+        dispatch_id=payload.dispatch_id
     )
 
     return {
         "ok": True,
         "message": f"Top donor roster docket dispatched to clinician {payload.clinician_email}.",
         "clinician_email": payload.clinician_email,
-        "count": len(payload.roster_items)
+        "count": len(payload.roster_items),
+        "has_attachment": bool(payload.pdf_base64)
     }
 
 # ==========================================
