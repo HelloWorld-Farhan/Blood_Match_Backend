@@ -494,6 +494,36 @@ def admin_reset_system_data(db: Session = Depends(get_db)):
 # ENTERPRISE AUTHENTICATION & OTP LIFECYCLE
 # ==========================================
 
+def get_user_by_email_or_r2(email: str, db: Session) -> Optional[UserModel]:
+    """Retrieves user by email from SQLite/PostgreSQL, or restores from Cloudflare R2 on demand."""
+    if not email:
+        return None
+    email_clean = email.strip().lower()
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    if user:
+        return user
+    try:
+        r2_record = get_user_auth_record_r2(email_clean)
+        if r2_record:
+            user = UserModel(
+                id=r2_record.get("id"),
+                full_name=r2_record.get("full_name") or "Clinician",
+                email=email_clean,
+                phone=r2_record.get("phone"),
+                hashed_password=r2_record.get("hashed_password"),
+                is_verified=bool(r2_record.get("is_verified", True)),
+                is_2fa_enabled=bool(r2_record.get("is_2fa_enabled", False)),
+                photo_url=r2_record.get("photo_url")
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            logger.info(f"[R2 SYNC] Restored account {email_clean} on-demand.")
+            return user
+    except Exception as exc:
+        logger.warning(f"Could not retrieve user {email_clean} from R2: {exc}")
+    return None
+
 @app.post("/api/auth/register", tags=["Authentication"], status_code=status.HTTP_201_CREATED)
 def register_user(
     payload: UserRegisterRequest,
@@ -518,8 +548,8 @@ def register_user(
             detail=pw_error
         )
 
-    # Check for existing account
-    existing_user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    # Check for existing account (Local DB or R2 permanent mirror)
+    existing_user = get_user_by_email_or_r2(email_clean, db)
     if existing_user:
         if existing_user.is_verified:
             raise HTTPException(
@@ -630,7 +660,7 @@ def verify_otp(
     email_clean = payload.email.strip().lower()
     otp_code_clean = payload.otp_code.strip()
 
-    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    user = get_user_by_email_or_r2(email_clean, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -755,7 +785,7 @@ def resend_otp(
     """
     email_clean = payload.email.strip().lower()
 
-    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    user = get_user_by_email_or_r2(email_clean, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1139,7 +1169,7 @@ def verify_2fa_login(
     email_clean = payload.email.strip().lower()
     otp_code_clean = payload.otp_code.strip()
 
-    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    user = get_user_by_email_or_r2(email_clean, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1549,7 +1579,7 @@ def request_password_reset(
     - Dispatches password reset email
     """
     email_clean = payload.email.strip().lower()
-    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    user = get_user_by_email_or_r2(email_clean, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1618,7 +1648,7 @@ def verify_password_reset_otp(
     email_clean = payload.email.strip().lower()
     otp_code_clean = payload.otp_code.strip()
 
-    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    user = get_user_by_email_or_r2(email_clean, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1704,6 +1734,8 @@ def confirm_password_reset(
         )
 
     user = db.query(UserModel).filter(UserModel.id == token_user_id, UserModel.email == email_clean).first()
+    if not user:
+        user = get_user_by_email_or_r2(email_clean, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1806,7 +1838,7 @@ def verify_current_password_endpoint(
     Validates user's current password prior to unlocking new password fields.
     """
     email_clean = payload.email.strip().lower()
-    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    user = get_user_by_email_or_r2(email_clean, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1840,7 +1872,7 @@ def update_password_by_previous(
     - Syncs R2 state
     """
     email_clean = payload.email.strip().lower()
-    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    user = get_user_by_email_or_r2(email_clean, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -2729,6 +2761,7 @@ async def upload_user_avatar(
 
     return {
         "photoUrl": upload_meta["public_url"],
+        "photo_url": upload_meta["public_url"],
         "s3_key": upload_meta["s3_key"],
         "size_bytes": upload_meta["size_bytes"],
         "content_type": upload_meta["content_type"],

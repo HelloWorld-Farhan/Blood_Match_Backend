@@ -119,9 +119,18 @@ def init_db():
                 for col in table.columns:
                     if col.name not in existing_cols:
                         logger.info(f"Auto-migrating missing column: {table_name}.{col.name}")
-                        col_type = col.type.compile(engine.dialect)
-                        with engine.begin() as conn:
-                            conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}"))
+                        try:
+                            if is_sqlite_fallback:
+                                col_type = str(col.type.compile(engine.dialect)).replace("NOT NULL", "").strip()
+                                default_clause = "DEFAULT 0" if isinstance(col.type, (Boolean, Integer)) else "DEFAULT NULL"
+                                with engine.begin() as conn:
+                                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type} {default_clause}"))
+                            else:
+                                col_type = col.type.compile(engine.dialect)
+                                with engine.begin() as conn:
+                                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}"))
+                        except Exception as col_err:
+                            logger.warning(f"Could not auto-add column {table_name}.{col.name}: {col_err}")
 
         logger.info("Auto-schema migration completed successfully.")
 

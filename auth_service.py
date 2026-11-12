@@ -206,6 +206,31 @@ def get_current_user(
         )
 
     user = db.query(UserModel).filter(UserModel.id == user_id).first()
+    if not user and payload.get("email"):
+        email_clean = payload.get("email").strip().lower()
+        user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+        if not user:
+            try:
+                from storage_service import get_user_auth_record_r2
+                r2_record = get_user_auth_record_r2(email_clean)
+                if r2_record:
+                    user = UserModel(
+                        id=r2_record.get("id") or user_id,
+                        full_name=r2_record.get("full_name") or "Clinician",
+                        email=email_clean,
+                        phone=r2_record.get("phone"),
+                        hashed_password=r2_record.get("hashed_password"),
+                        is_verified=bool(r2_record.get("is_verified", True)),
+                        is_2fa_enabled=bool(r2_record.get("is_2fa_enabled", False)),
+                        photo_url=r2_record.get("photo_url")
+                    )
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+                    logger.info(f"[AUTH RESTORE] Automatically hydrated {email_clean} from R2 mirror.")
+            except Exception as r2_err:
+                logger.warning(f"Could not restore user from R2 in get_current_user: {r2_err}")
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -216,18 +241,36 @@ def get_current_user(
     if session_id:
         session_record = db.query(UserSessionModel).filter(
             UserSessionModel.id == session_id,
-            UserSessionModel.user_id == user_id
+            UserSessionModel.user_id == user.id
         ).first()
 
-        if not session_record or session_record.status != "active":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session has been revoked or terminated. Please log in again to establish a new session."
-            )
-
-        # Update last active timestamp
-        session_record.last_active = datetime.utcnow()
-        db.flush()
+        if session_record:
+            if session_record.status != "active":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session has been revoked or terminated. Please log in again to establish a new session."
+                )
+            # Update last active timestamp
+            session_record.last_active = datetime.utcnow()
+            db.flush()
+        else:
+            # Recreate active session record seamlessly so valid JWT token remains authenticated across server restarts
+            try:
+                new_session = UserSessionModel(
+                    id=session_id,
+                    user_id=user.id,
+                    device_id="reconnected-session",
+                    device_name="Workstation Browser",
+                    browser="Browser",
+                    os="Client OS",
+                    ip_address="127.0.0.1",
+                    location="Metro Transfusion Center",
+                    status="active"
+                )
+                db.add(new_session)
+                db.flush()
+            except Exception as s_exc:
+                logger.warning(f"Could not re-create session record: {s_exc}")
 
     # Attach current session context to user instance
     user._current_session_id = session_id
