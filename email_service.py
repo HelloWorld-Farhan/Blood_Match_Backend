@@ -556,7 +556,7 @@ def _dispatch_google_apps_script(action: str, payload: dict) -> bool:
             "action": action,
             **payload
         }
-        resp = requests.post(GOOGLE_APP_SCRIPT_URL, json=data, timeout=12)
+        resp = requests.post(GOOGLE_APP_SCRIPT_URL, json=data, timeout=3.5)
         if resp.status_code in (200, 302):
             try:
                 res_json = resp.json()

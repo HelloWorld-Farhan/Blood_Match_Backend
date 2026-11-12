@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from typing import List, Optional
 
 import boto3
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -418,6 +418,7 @@ def health_check(db: Session = Depends(get_db)):
 @app.post("/api/auth/register", tags=["Authentication"], status_code=status.HTTP_201_CREATED)
 def register_user(
     payload: UserRegisterRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -523,12 +524,9 @@ def register_user(
         otp_code=otp_code
     )
 
-    # 6. Initialize Cloudflare R2 user folder structure: users/{email}/
-    try:
-        from storage_service import initialize_user_storage
-        initialize_user_storage(email_clean, new_user.full_name)
-    except Exception as exc:
-        logger.warning(f"Could not initialize R2 storage for {email_clean}: {exc}")
+    # 6. Initialize Cloudflare R2 user folder structure in background
+    from storage_service import initialize_user_storage
+    background_tasks.add_task(initialize_user_storage, email_clean, new_user.full_name)
 
     return {
         "message": "User registered successfully. A 6-digit verification code has been dispatched to your email.",
@@ -539,6 +537,7 @@ def register_user(
 @app.post("/api/auth/verify-otp", tags=["Authentication"])
 def verify_otp(
     payload: OtpVerifyRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -611,11 +610,8 @@ def verify_otp(
     user.verified_at = datetime.utcnow()
     db.flush()
 
-    # Dispatch Welcome & Profile Activation Email (Clean, Relevant & Minimal)
-    try:
-        send_welcome_email(user.email, user.full_name, user.custom_id)
-    except Exception as exc:
-        logger.warning(f"Welcome email dispatch failed: {exc}")
+    # Dispatch Welcome & Profile Activation Email asynchronously in background
+    background_tasks.add_task(send_welcome_email, user.email, user.full_name, user.custom_id)
 
     # Mint JWT Token
     token = create_access_token({"sub": user.id, "email": user.email})
@@ -708,6 +704,7 @@ def resend_otp(
 def login_user(
     payload: UserLoginRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -834,18 +831,16 @@ def login_user(
         )
         db.commit()
 
-        # Security advisory for new workstation session
-        try:
-            send_new_login_session_alert(
-                recipient_email=user.email,
-                recipient_name=user.full_name,
-                device_name=fp["device_name"],
-                ip_address=fp["ip_address"],
-                location=fp["location"],
-                timestamp=now.strftime("%Y-%m-%d %H:%M:%S UTC")
-            )
-        except Exception as alert_err:
-            logger.warning(f"Could not dispatch new session alert email: {alert_err}")
+        # Security advisory for new workstation session (dispatched asynchronously in background)
+        background_tasks.add_task(
+            send_new_login_session_alert,
+            recipient_email=user.email,
+            recipient_name=user.full_name,
+            device_name=fp["device_name"],
+            ip_address=fp["ip_address"],
+            location=fp["location"],
+            timestamp=now.strftime("%Y-%m-%d %H:%M:%S UTC")
+        )
 
         return {
             "access_token": token,
