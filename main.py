@@ -3,6 +3,7 @@ import re
 import json
 import uuid
 import base64
+import time
 import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -421,11 +422,14 @@ def read_root():
     }
 
 @app.get("/health", tags=["System"])
+@app.get("/api/health", tags=["System"])
 def health_check(db: Session = Depends(get_db)):
     return {
         "status": "healthy",
         "database_connected": True,
-        "engine": "sqlite_fallback" if is_sqlite_fallback else "postgresql"
+        "engine": "sqlite_fallback" if is_sqlite_fallback else "postgresql",
+        "server_time": time.time(),
+        "speed": "optimal"
     }
 
 @app.post("/api/admin/reset-system-data", tags=["System"])
