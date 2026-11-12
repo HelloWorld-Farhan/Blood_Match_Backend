@@ -703,10 +703,10 @@ def verify_otp(
     # Check 10-Minute Expiry
     if datetime.utcnow() > otp_record.expires_at:
         otp_record.is_used = True
-        db.flush()
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification token has expired (10-minute limit). Please request a new verification code."
+            detail="Verification token has expired (strictly valid for 10 minutes). Please request a fresh verification code."
         )
 
     # Validate OTP Code
@@ -1326,6 +1326,71 @@ def verify_2fa_login(
         "device_trusted": payload.remember_device,
         "is_verified": user.is_verified,
         "user": user.to_dict()
+    }
+
+@app.post("/api/auth/2fa/resend", tags=["Two-Factor Authentication"])
+def resend_2fa_otp(
+    payload: OtpResendRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Dispatches a fresh 6-digit Two-Factor Authentication code (strictly valid for 10 minutes)
+    subject to a 30-second rate-limiting cooldown.
+    """
+    email_clean = payload.email.strip().lower()
+    user = get_user_by_email_or_r2(email_clean, db)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account not found."
+        )
+
+    # Check 30-second cooldown rate limit
+    last_otp = (
+        db.query(OtpTokenModel)
+        .filter(OtpTokenModel.email == email_clean, OtpTokenModel.token_type == "2fa_login")
+        .order_by(OtpTokenModel.created_at.desc())
+        .first()
+    )
+    if last_otp:
+        cooldown_remaining = calculate_cooldown_remaining(last_otp.created_at)
+        if cooldown_remaining > 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {cooldown_remaining} seconds before requesting a new two-factor code."
+            )
+
+    # Invalidate previous unused 2fa_login tokens
+    db.query(OtpTokenModel).filter(
+        OtpTokenModel.email == email_clean,
+        OtpTokenModel.token_type == "2fa_login",
+        OtpTokenModel.is_used == False
+    ).update({"is_used": True})
+
+    # Generate fresh 6-digit OTP strictly valid for 10 minutes
+    new_otp = generate_cryptographic_otp()
+    otp_record = OtpTokenModel(
+        user_id=user.id,
+        email=email_clean,
+        otp_code=new_otp,
+        token_type="2fa_login",
+        expires_at=calculate_otp_expiry(),
+        is_used=False,
+        attempts=0
+    )
+    db.add(otp_record)
+    db.commit()
+
+    send_verification_email(
+        recipient_email=email_clean,
+        recipient_name=user.full_name,
+        otp_code=new_otp
+    )
+
+    return {
+        "status": "success",
+        "message": f"Fresh two-factor verification code dispatched to {email_clean} (strictly valid for 10 minutes).",
+        "cooldown_seconds": 30
     }
 
 @app.put("/api/auth/2fa/toggle", tags=["Two-Factor Authentication"])
