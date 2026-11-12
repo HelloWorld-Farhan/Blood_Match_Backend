@@ -411,6 +411,69 @@ def health_check(db: Session = Depends(get_db)):
         "engine": "sqlite_fallback" if is_sqlite_fallback else "postgresql"
     }
 
+@app.post("/api/admin/reset-system-data", tags=["System"])
+def admin_reset_system_data(db: Session = Depends(get_db)):
+    """
+    Complete Database & Storage Fresh-Start Reset:
+    1. Wipes all user, session, token, donor, check, document, alert, and request records.
+    2. Resets all 8 ABO/Rh blood groups to strictly 0 units available.
+    3. Purges Cloudflare R2 storage under users/ prefix.
+    """
+    tables_to_clear = [
+        UserModel,
+        OtpTokenModel,
+        UserSessionModel,
+        TrustedDeviceModel,
+        ClinicianProfileModel,
+        PasswordHistoryModel,
+        EmergencyRequestModel,
+        ClinicalCheckModel,
+        ClinicalAuditLogModel,
+        ClinicalDocumentModel,
+        DonorModel,
+        TransfusionAlertModel,
+        InventoryModel
+    ]
+    for model_cls in tables_to_clear:
+        db.query(model_cls).delete()
+    db.commit()
+
+    # Re-seed the pristine 8 ABO & RhD blood groups initialized to strictly 0 units
+    initial_inventory = [
+        InventoryModel(blood_type="O-", units_available=0, status="critical", temperature_celsius=4.0),
+        InventoryModel(blood_type="O+", units_available=0, status="critical", temperature_celsius=4.0),
+        InventoryModel(blood_type="A-", units_available=0, status="critical", temperature_celsius=4.0),
+        InventoryModel(blood_type="A+", units_available=0, status="critical", temperature_celsius=4.0),
+        InventoryModel(blood_type="B-", units_available=0, status="critical", temperature_celsius=4.0),
+        InventoryModel(blood_type="B+", units_available=0, status="critical", temperature_celsius=4.0),
+        InventoryModel(blood_type="AB-", units_available=0, status="critical", temperature_celsius=4.0),
+        InventoryModel(blood_type="AB+", units_available=0, status="critical", temperature_celsius=4.0),
+    ]
+    db.add_all(initial_inventory)
+    db.commit()
+
+    # Clean Cloudflare R2 storage
+    deleted_r2_count = 0
+    try:
+        from storage_service import get_r2_client, R2_BUCKET_NAME
+        r2 = get_r2_client()
+        if r2:
+            paginator = r2.get_paginator('list_objects_v2')
+            for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix="users/"):
+                items = page.get("Contents", [])
+                if items:
+                    delete_keys = [{"Key": item["Key"]} for item in items]
+                    r2.delete_objects(Bucket=R2_BUCKET_NAME, Delete={"Objects": delete_keys})
+                    deleted_r2_count += len(delete_keys)
+    except Exception as exc:
+        logger.warning(f"R2 purge notice: {exc}")
+
+    return {
+        "status": "success",
+        "message": "All database records wiped to zero. 8 blood groups reset to 0 units. R2 storage purged.",
+        "r2_objects_purged": deleted_r2_count
+    }
+
 # ==========================================
 # ENTERPRISE AUTHENTICATION & OTP LIFECYCLE
 # ==========================================

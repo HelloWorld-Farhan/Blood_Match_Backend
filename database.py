@@ -1,4 +1,5 @@
 import os
+import tempfile
 import logging
 from typing import Generator
 from sqlalchemy import create_engine, text, inspect
@@ -62,11 +63,10 @@ def create_database_engine():
                 "Activating persistent SQLite fallback with StaticPool."
             )
 
-    # Requirement 2: Resilient persistent SQLite fallback with StaticPool
-    logger.info("Initializing persistent SQLite fallback engine (bloodmatch_fallback.db)...")
+    # Requirement 2: Resilient persistent SQLite fallback in system temp directory (Workspace stays 100% clean)
+    logger.info("Initializing persistent SQLite fallback engine...")
     is_sqlite_fallback = True
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    sqlite_path = os.path.join(base_dir, "bloodmatch_fallback.db").replace("\\", "/")
+    sqlite_path = (os.environ.get("SQLITE_DB_PATH") or os.path.join(tempfile.gettempdir(), "bloodmatch_fallback.db")).replace("\\", "/")
     return create_engine(
         f"sqlite:///{sqlite_path}",
         connect_args={"check_same_thread": False},
@@ -125,23 +125,23 @@ def init_db():
 
         logger.info("Auto-schema migration completed successfully.")
 
-        # Seed initial blood inventory if empty
+        # Seed initial blood inventory if empty with strictly 0 units (Pristine fresh operational start)
         with SessionLocal() as session:
             count = session.query(models.InventoryModel).count()
             if count == 0:
-                logger.info("Seeding initial ABO & RhD clinical inventory units...")
+                logger.info("Initializing 8 clinical ABO & RhD blood groups at 0 units...")
                 seeds = [
-                    models.InventoryModel(blood_type="O-", units_available=14, status="optimal", temperature_celsius=3.8),
-                    models.InventoryModel(blood_type="O+", units_available=22, status="optimal", temperature_celsius=4.0),
-                    models.InventoryModel(blood_type="A-", units_available=8, status="moderate", temperature_celsius=3.9),
-                    models.InventoryModel(blood_type="A+", units_available=19, status="optimal", temperature_celsius=4.1),
-                    models.InventoryModel(blood_type="B-", units_available=4, status="critical", temperature_celsius=4.0),
-                    models.InventoryModel(blood_type="B+", units_available=17, status="optimal", temperature_celsius=3.7),
-                    models.InventoryModel(blood_type="AB-", units_available=2, status="critical", temperature_celsius=4.2),
-                    models.InventoryModel(blood_type="AB+", units_available=9, status="moderate", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="O-", units_available=0, status="critical", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="O+", units_available=0, status="critical", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="A-", units_available=0, status="critical", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="A+", units_available=0, status="critical", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="B-", units_available=0, status="critical", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="B+", units_available=0, status="critical", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="AB-", units_available=0, status="critical", temperature_celsius=4.0),
+                    models.InventoryModel(blood_type="AB+", units_available=0, status="critical", temperature_celsius=4.0),
                 ]
                 session.add_all(seeds)
                 session.commit()
-                logger.info("Default inventory seeded successfully.")
+                logger.info("Default 0-unit inventory initialized successfully.")
     except Exception as exc:
         logger.error(f"Auto-schema migration warning: {exc}")

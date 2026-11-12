@@ -11,6 +11,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 import database
 import models
 
+# Ensure tables are created
+database.init_db()
+
 print("Connecting to database session...")
 session = database.SessionLocal()
 
@@ -83,7 +86,8 @@ except Exception as r2_err:
 # Vacuum SQLite database if using SQLite fallback
 if "sqlite" in str(database.engine.url):
     import sqlite3
-    db_file = os.path.join(os.path.dirname(__file__), "bloodmatch_fallback.db")
+    import tempfile
+    db_file = os.path.join(tempfile.gettempdir(), "bloodmatch_fallback.db")
     if os.path.exists(db_file):
         conn = sqlite3.connect(db_file)
         conn.execute("VACUUM")
