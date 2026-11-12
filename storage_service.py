@@ -326,6 +326,27 @@ def list_user_assets(authenticated_email: str, category: Optional[str] = None) -
         logger.error(f"Failed to list assets from R2 with prefix {prefix}: {exc}")
         return []
 
+def get_user_avatar_bytes(authenticated_email: str) -> Optional[Tuple[bytes, str]]:
+    """
+    Fetches raw avatar bytes and content type directly from Cloudflare R2
+    using authenticated server-side credentials, bypassing browser CORS restrictions.
+    """
+    r2 = get_r2_client()
+    if not r2:
+        return None
+    assets = list_user_assets(authenticated_email, category="profile")
+    for a in assets:
+        key = a.get("s3_key", "")
+        if "avatar" in key:
+            try:
+                obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=key)
+                content = obj["Body"].read()
+                ct = obj.get("ContentType") or "image/webp"
+                return content, ct
+            except Exception as exc:
+                logger.warning(f"Failed to retrieve avatar bytes from R2 key {key}: {exc}")
+    return None
+
 def save_user_auth_record_r2(user_data: dict) -> bool:
     """
     Persists permanent disaster-proof authentication record into Cloudflare R2:

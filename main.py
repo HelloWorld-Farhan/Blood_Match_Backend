@@ -98,6 +98,7 @@ from storage_service import (
     delete_user_asset,
     delete_user_category_assets,
     list_user_assets,
+    get_user_avatar_bytes,
     validate_tenant_access,
     sanitize_user_email,
     build_scoped_path,
@@ -3133,6 +3134,71 @@ def delete_user_avatar(
     return {
         "photoUrl": None,
         "message": "Avatar removed successfully. Reset to clinical initials."
+    }
+
+@app.get("/api/v1/auth/avatar/data", tags=["Cloud Storage Service"])
+def get_user_avatar_data(
+    user_email: Optional[str] = Query(None),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Fetches raw avatar binary directly from Cloudflare R2 and converts to a
+    data:image/webp;base64 URL with full CORS resilience. Completely eliminates
+    cross-origin blocking and tainted canvas errors in portrait crop/manage tools.
+    """
+    target_email = user_email.strip().lower() if user_email else current_user.email
+    if not validate_tenant_access(current_user.email, target_email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Multi-tenant violation: Cannot access another tenant's avatar."
+        )
+
+    # 1. Fetch direct bytes from Cloudflare R2
+    res = get_user_avatar_bytes(target_email)
+    if res:
+        img_bytes, mime = res
+        b64_str = base64.b64encode(img_bytes).decode("utf-8")
+        data_url = f"data:{mime};base64,{b64_str}"
+        return {
+            "dataUrl": data_url,
+            "photoUrl": current_user.photo_url or f"{data_url}",
+            "source": "r2_direct"
+        }
+
+    # 2. Fallback: Check if user has photo_url in DB
+    user_record = db.query(UserModel).filter(UserModel.email == target_email).first()
+    photo_url = user_record.photo_url if user_record else current_user.photo_url
+
+    if photo_url and photo_url.startswith("data:"):
+        return {
+            "dataUrl": photo_url,
+            "photoUrl": photo_url,
+            "source": "db_data_url"
+        }
+
+    # 3. If photo_url is an external URL, proxy-fetch server-side to absorb CORS
+    if photo_url and (photo_url.startswith("http://") or photo_url.startswith("https://")):
+        try:
+            import httpx
+            with httpx.Client(timeout=8.0) as client:
+                resp = client.get(photo_url)
+                if resp.status_code == 200:
+                    ct = resp.headers.get("content-type") or "image/webp"
+                    b64_str = base64.b64encode(resp.content).decode("utf-8")
+                    data_url = f"data:{ct};base64,{b64_str}"
+                    return {
+                        "dataUrl": data_url,
+                        "photoUrl": photo_url,
+                        "source": "server_proxied"
+                    }
+        except Exception as exc:
+            logger.warning(f"Could not server-proxy avatar from {photo_url}: {exc}")
+
+    return {
+        "dataUrl": None,
+        "photoUrl": photo_url,
+        "source": "none"
     }
 
 @app.get("/api/v1/sync/all", tags=["Cloud State Sync"])
