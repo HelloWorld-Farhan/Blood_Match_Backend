@@ -609,30 +609,38 @@ def verify_otp(
     user.is_verified = True
     user.verified_at = datetime.utcnow()
 
-    # Create active session for the verified user
-    session_record = UserSessionModel(
-        user_id=user.id,
-        device_id="initial-registration",
-        device_name="Workstation Browser",
-        browser="Browser",
-        os="Client OS",
-        ip_address="127.0.0.1",
-        location="Metro Transfusion Center",
-        status="active"
-    )
-    db.add(session_record)
-    db.flush()
+    # Create active session for the verified user with error containment
+    session_id = None
+    try:
+        session_record = UserSessionModel(
+            user_id=user.id,
+            device_id="initial-registration",
+            device_name="Workstation Browser",
+            browser="Browser",
+            os="Client OS",
+            ip_address="127.0.0.1",
+            location="Metro Transfusion Center",
+            status="active"
+        )
+        db.add(session_record)
+        db.flush()
+        session_id = session_record.id
+    except Exception as exc:
+        logger.warning(f"Could not persist registration session record: {exc}")
 
     # Mint JWT Token with active session claim
     token = create_access_token(
         {"sub": user.id, "email": user.email},
-        session_id=session_record.id
+        session_id=session_id
     )
     db.commit()
 
     # Dispatch Welcome & Profile Activation Email asynchronously in background
-    member_id_val = user.member_id or user.custom_id or ""
-    background_tasks.add_task(send_welcome_email, user.email, user.full_name, member_id_val)
+    try:
+        member_id_val = getattr(user, 'member_id', None) or getattr(user, 'custom_id', None) or ""
+        background_tasks.add_task(send_welcome_email, user.email, user.full_name, member_id_val)
+    except Exception as exc:
+        logger.warning(f"Could not queue welcome email background task: {exc}")
 
     return {
         "message": "Account email successfully verified. Activation complete.",
