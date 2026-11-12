@@ -44,6 +44,10 @@ class ClinicianProfileRequest(BaseModel):
     license_id: Optional[str] = None
     avatar_url: Optional[str] = None
 
+class ProfileUpdateRequest(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=100)
+    phone: Optional[str] = Field(None, max_length=30)
+
 # Enterprise Auth Schemas
 class UserRegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=100)

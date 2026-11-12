@@ -51,6 +51,7 @@ from schemas import (
     DonorCreateRequest,
     EmergencyCreateRequest,
     ClinicianProfileRequest,
+    ProfileUpdateRequest,
     ClinicalCheckCreateRequest,
     ClinicalDocumentCreateRequest,
     ClinicalAuditLogCreateRequest
@@ -2495,6 +2496,62 @@ def upsert_clinician_profile(
 
     sync_user_state_to_r2(email_clean, db)
     return profile.to_dict()
+
+@app.put("/api/auth/profile", tags=["Profile"])
+@app.put("/api/profile", tags=["Profile"])
+def update_user_profile(
+    payload: ProfileUpdateRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Updates authenticated clinician's name and phone number.
+    Email and unique ID are system-bound and strictly immutable.
+    Syncs across database and Cloudflare R2 backup.
+    """
+    cleaned_name = payload.full_name.strip()
+    if len(cleaned_name) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Full legal clinician name must be at least 2 characters."
+        )
+
+    current_user.full_name = cleaned_name
+    if payload.phone is not None:
+        current_user.phone = payload.phone.strip()
+
+    # Also update ClinicianProfileModel if exists
+    profile = db.query(ClinicianProfileModel).filter(
+        ClinicianProfileModel.work_email == current_user.email
+    ).first()
+    if profile:
+        profile.full_name = current_user.full_name
+        profile.phone = current_user.phone
+
+    db.commit()
+
+    # Mirror to R2
+    try:
+        save_user_auth_record_r2({
+            "id": current_user.id,
+            "email": current_user.email,
+            "full_name": current_user.full_name,
+            "phone": current_user.phone,
+            "hashed_password": current_user.hashed_password,
+            "is_verified": current_user.is_verified,
+            "is_2fa_enabled": current_user.is_2fa_enabled,
+            "photo_url": current_user.photo_url,
+            "created_at": current_user.created_at.isoformat() if current_user.created_at else None
+        })
+        sync_user_state_to_r2(current_user.email, db)
+    except Exception as exc:
+        logger.warning(f"Failed to sync profile update to R2: {exc}")
+
+    return {
+        "status": "success",
+        "message": "Clinician profile updated successfully.",
+        "user": current_user.to_dict()
+    }
 
 # ==========================================
 # CLINICAL CHECKS & SCREENING CONSULTATIONS
