@@ -950,9 +950,16 @@ def login_user(
             trusted_device.last_used_at = datetime.utcnow()
             db.flush()
 
-        # Requirement 2: 2FA Enforcement Rule
-        # If 2FA is enabled on the user account, strictly enforce 6-digit email OTP challenge
-        requires_step_up = bool(user.is_2fa_enabled)
+        # Check if this device previously had its session terminated/revoked
+        has_revoked_session = db.query(UserSessionModel).filter(
+            UserSessionModel.user_id == user.id,
+            UserSessionModel.device_id == fp["device_id"],
+            UserSessionModel.status == "revoked"
+        ).first() is not None
+
+        # Requirement 2: 2FA Enforcement Rule & Terminated Device Step-Up Challenge
+        # If 2FA is enabled OR device was remotely terminated -> strictly enforce 6-digit email OTP challenge
+        requires_step_up = bool(user.is_2fa_enabled) or bool(has_revoked_session and not trusted_device)
 
         if requires_step_up:
             # Invalidate prior unused 2FA tokens for this email
@@ -2094,20 +2101,17 @@ def list_active_sessions(
     db: Session = Depends(get_db)
 ):
     """
-    Requirement 3: Return all currently active device sessions for authenticated user.
+    Requirement 3: Return all device sessions for authenticated user (both active and historical/revoked).
     Flags is_current = True for the caller's workstation session.
     """
     current_sid = getattr(current_user, "_current_session_id", None)
-    active_sessions = (
+    all_sessions = (
         db.query(UserSessionModel)
-        .filter(
-            UserSessionModel.user_id == current_user.id,
-            UserSessionModel.status == "active"
-        )
+        .filter(UserSessionModel.user_id == current_user.id)
         .order_by(UserSessionModel.last_active.desc())
         .all()
     )
-    return [s.to_dict(current_session_id=current_sid) for s in active_sessions]
+    return [s.to_dict(current_session_id=current_sid) for s in all_sessions]
 
 @app.delete("/api/sessions/others", tags=["Session Security"])
 def revoke_other_sessions(
@@ -2116,6 +2120,7 @@ def revoke_other_sessions(
 ):
     """
     Requirement 3: Invalidate all active sessions except the current workstation.
+    Also revokes device trust for those remote devices so subsequent logins require OTP.
     """
     current_sid = getattr(current_user, "_current_session_id", None)
     query = db.query(UserSessionModel).filter(
@@ -2125,11 +2130,26 @@ def revoke_other_sessions(
     if current_sid:
         query = query.filter(UserSessionModel.id != current_sid)
 
-    revoked_count = query.update({"status": "revoked"}, synchronize_session=False)
+    other_sessions = query.all()
+    device_ids_to_untrust = [s.device_id for s in other_sessions if s.device_id]
+
+    revoked_count = 0
+    now = datetime.utcnow()
+    for s in other_sessions:
+        s.status = "revoked"
+        s.last_active = now
+        revoked_count += 1
+
+    if device_ids_to_untrust:
+        db.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == current_user.id,
+            TrustedDeviceModel.device_id.in_(device_ids_to_untrust)
+        ).delete(synchronize_session=False)
+
     db.commit()
 
     return {
-        "message": "All other active device sessions have been terminated.",
+        "message": "All other active device sessions have been terminated and device trust revoked.",
         "terminated_count": revoked_count
     }
 
@@ -2141,7 +2161,15 @@ def revoke_session(
 ):
     """
     Requirement 3: Remotely revoke and invalidate a specific device session.
+    Untrusts the device so next login strictly requires step-up OTP challenge.
     """
+    current_sid = getattr(current_user, "_current_session_id", None)
+    if current_sid and session_id == current_sid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot remotely terminate your current active terminal session. Please use Sign Out & Lock to exit this workstation."
+        )
+
     session_record = (
         db.query(UserSessionModel)
         .filter(
@@ -2157,9 +2185,18 @@ def revoke_session(
         )
 
     session_record.status = "revoked"
+    session_record.last_active = datetime.utcnow()
+
+    # Revoke device trust so future logins from this device require step-up OTP challenge
+    if session_record.device_id:
+        db.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == current_user.id,
+            TrustedDeviceModel.device_id == session_record.device_id
+        ).delete(synchronize_session=False)
+
     db.commit()
     return {
-        "message": f"Device session ({session_record.device_name}) has been revoked.",
+        "message": f"Device session ({session_record.device_name}) has been terminated and device trust revoked.",
         "session_id": session_id,
         "status": "revoked"
     }
