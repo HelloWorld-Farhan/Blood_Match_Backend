@@ -608,13 +608,31 @@ def verify_otp(
     otp_record.is_used = True
     user.is_verified = True
     user.verified_at = datetime.utcnow()
+
+    # Create active session for the verified user
+    session_record = UserSessionModel(
+        user_id=user.id,
+        device_id="initial-registration",
+        device_name="Workstation Browser",
+        browser="Browser",
+        os="Client OS",
+        ip_address="127.0.0.1",
+        location="Metro Transfusion Center",
+        status="active"
+    )
+    db.add(session_record)
     db.flush()
 
-    # Dispatch Welcome & Profile Activation Email asynchronously in background
-    background_tasks.add_task(send_welcome_email, user.email, user.full_name, user.custom_id)
+    # Mint JWT Token with active session claim
+    token = create_access_token(
+        {"sub": user.id, "email": user.email},
+        session_id=session_record.id
+    )
+    db.commit()
 
-    # Mint JWT Token
-    token = create_access_token({"sub": user.id, "email": user.email})
+    # Dispatch Welcome & Profile Activation Email asynchronously in background
+    member_id_val = user.member_id or user.custom_id or ""
+    background_tasks.add_task(send_welcome_email, user.email, user.full_name, member_id_val)
 
     return {
         "message": "Account email successfully verified. Activation complete.",

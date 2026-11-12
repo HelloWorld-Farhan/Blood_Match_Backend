@@ -38,6 +38,10 @@ class UserModel(Base):
         clean = (self.id or "9481NX01").replace("-", "").upper()
         return f"BM-{clean[:4]}-{clean[4:8]}"
 
+    @property
+    def custom_id(self) -> str:
+        return self.member_id
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -102,10 +106,10 @@ class UserSessionModel(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), index=True, nullable=False)
     device_id = Column(String(64), index=True, nullable=False)
-    device_name = Column(String(100), nullable=False)
-    browser = Column(String(100), nullable=False)
-    os = Column(String(50), nullable=False)
-    ip_address = Column(String(50), nullable=False)
+    device_name = Column(String(100), nullable=False, default="Workstation Browser")
+    browser = Column(String(100), nullable=True, default="Browser")
+    os = Column(String(50), nullable=True, default="Operating System")
+    ip_address = Column(String(50), nullable=True, default="127.0.0.1")
     location = Column(String(120), default="Metro Transfusion Center")
     status = Column(String(20), default="active", nullable=False) # "active" | "revoked"
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -133,10 +137,10 @@ class TrustedDeviceModel(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), index=True, nullable=False)
     device_id = Column(String(64), index=True, nullable=False)
-    device_name = Column(String(100), nullable=False)
-    browser = Column(String(100), nullable=False)
-    os = Column(String(50), nullable=False)
-    ip_address = Column(String(50), nullable=False)
+    device_name = Column(String(100), nullable=False, default="Workstation Browser")
+    browser = Column(String(100), nullable=True, default="Browser")
+    os = Column(String(50), nullable=True, default="Operating System")
+    ip_address = Column(String(50), nullable=True, default="127.0.0.1")
     trusted_at = Column(DateTime, default=datetime.utcnow)
     last_used_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -256,6 +260,10 @@ class ClinicianProfileModel(Base):
     def member_id(self) -> str:
         clean = (self.id or "9481NX01").replace("-", "").upper()
         return f"BM-{clean[:4]}-{clean[4:8]}"
+
+    @property
+    def custom_id(self) -> str:
+        return self.member_id
 
     def to_dict(self):
         return {
