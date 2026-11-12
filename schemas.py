@@ -28,7 +28,7 @@ class DonorCreateRequest(BaseModel):
 class EmergencyCreateRequest(BaseModel):
     user_email: Optional[str] = None
     patient_name: str = Field(..., min_length=2)
-    hospital: str = Field(..., min_length=2)
+    hospital: Optional[str] = "Emergency Trauma Network"
     blood_type: str = Field(..., min_length=1, max_length=5)
     units_needed: int = Field(1, ge=1)
     status: str = "urgent"
