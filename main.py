@@ -2477,7 +2477,7 @@ def list_emergency_requests(
 ):
     query = db.query(EmergencyRequestModel)
     if user_email:
-        query = query.filter((EmergencyRequestModel.user_email == user_email.strip().lower()) | (EmergencyRequestModel.user_email.is_(None)))
+        query = query.filter(EmergencyRequestModel.user_email == user_email.strip().lower())
     requests = query.order_by(EmergencyRequestModel.created_at.desc()).all()
     return [r.to_dict() for r in requests]
 
