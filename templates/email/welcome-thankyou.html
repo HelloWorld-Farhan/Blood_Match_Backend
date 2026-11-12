@@ -143,29 +143,20 @@
           Your profile has been authenticated with the BloodMatch Emergency Transfusion Network. You now have authorized clearance to access our clinical coordination portal, monitor 8-group cryo-vault inventory, and coordinate rapid donor dispatch.
         </p>
 
-        <div class="status-card">
-          <div class="status-title">Credentials Overview</div>
-          <div class="status-row">
-            <span class="status-label">Network Status</span>
-            <span class="status-val badge-active">● Active Verified Member</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">Assigned Facility</span>
-            <span class="status-val">Metro Transfusion Cryo-Vault 01</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">Encryption Level</span>
-            <span class="status-val">Tier-4 Encrypted • HIPAA Compliant</span>
-          </div>
+        {% if member_id %}
+        <div style="background: #FDF9F8; border: 1.5px solid #D72638; border-radius: 12px; padding: 14px 18px; margin: 20px 0; font-size: 13px; color: #1A1D20;">
+          <strong>Your Unique Member ID:</strong> <span style="font-family: monospace; font-weight: 800; color: #D72638; font-size: 15px; margin-left: 6px;">{{ member_id }}</span>
         </div>
+        {% endif %}
 
         <div class="notice-box">
-          Your credentials are active. To begin managing trauma transfers or voluntary registries, simply open the portal on your authenticated clinical terminal.
+          <strong>Account Ready:</strong> Your clinical credentials are fully activated. To begin coordinating trauma reserves, donor registries, or compatibility matrix scans, open the portal on your authenticated workstation.
         </div>
       </div>
       <div class="footer">
         BloodMatch Clinical Transfusion Systems • Emergency Hotline: +1 (800) 555-BLOOD<br>
         256-Bit Cryptographic Transfusion Network Node
+        <div style="font-size: 10px; color: #A0AEC0; margin-top: 8px;">Automated Clinical Dispatch Node • Verified Session</div>
       </div>
     </div>
   </div>

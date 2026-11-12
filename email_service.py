@@ -198,10 +198,6 @@ CHANGED_HTML_FALLBACK = """
     .paragraph { font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }
     .audit-card { background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }
     .audit-title { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-    .audit-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; }
-    .audit-row:last-child { border-bottom: none; }
-    .audit-label { color: #75808A; font-weight: 500; }
-    .audit-val { color: #1A1D20; font-weight: 700; font-family: monospace; }
     .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
     .notice-box strong { color: #D72638; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
@@ -217,13 +213,27 @@ CHANGED_HTML_FALLBACK = """
         <p class="paragraph">This automated security advisory confirms that the access password for your clinical account has been updated successfully. Active sessions have been audited and cryptographic tokens regenerated.</p>
         <div class="audit-card">
           <div class="audit-title">Security Event Audit Trail</div>
-          <div class="audit-row"><span class="audit-label">Timestamp</span><span class="audit-val">{{ timestamp }}</span></div>
-          <div class="audit-row"><span class="audit-label">Terminal / Device</span><span class="audit-val">{{ browser }}</span></div>
-          <div class="audit-row"><span class="audit-label">Origin Network IP</span><span class="audit-val">{{ ip_address }}</span></div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Timestamp</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">{{ timestamp }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Terminal / Device</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{{ browser }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Origin Network IP</td>
+              <td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">{{ ip_address }}</td>
+            </tr>
+          </table>
         </div>
         <div class="notice-box"><strong>Important:</strong> If you did not make this change, your credentials may be compromised. Lock down your terminal and report this incident to your facility trauma administrator immediately.</div>
       </div>
-      <div class="footer">BloodMatch Clinical Security Service • Real-Time Transfusion Defense</div>
+      <div class="footer">
+        BloodMatch Clinical Security Service • Real-Time Transfusion Defense
+        <div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Audit Ref: #{{ timestamp }}</div>
+      </div>
     </div>
   </div>
 </body>
@@ -250,9 +260,8 @@ TWO_FACTOR_HTML_FALLBACK = """
     .otp-label { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
     .otp-code { font-family: monospace; font-size: 38px; font-weight: 900; letter-spacing: 10px; color: #D72638; display: inline-block; margin: 0; }
     .otp-validity { margin-top: 10px; font-size: 12px; color: #7A0C17; font-weight: 600; }
-    .audit-card { background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 14px 18px; margin: 20px 0; font-size: 12px; }
-    .audit-row { display: flex; justify-content: space-between; padding: 5px 0; color: #5A626A; }
-    .audit-val { color: #1A1D20; font-weight: 700; }
+    .audit-card { background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; font-size: 12px; }
+    .audit-title { font-size: 11px; font-weight: 800; color: #7A0C17; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
     .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
     .notice-box strong { color: #D72638; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
@@ -265,19 +274,31 @@ TWO_FACTOR_HTML_FALLBACK = """
       <div class="content">
         <h1 class="title">Two-Factor Authentication</h1>
         <div class="greeting">Hello, {{ name }}</div>
-        <p class="paragraph">A sign-in attempt was initiated from a new or protected workstation. Please submit the following single-use 6-digit code in the login portal to complete authentication:</p>
+        <p class="paragraph">A sign-in attempt was initiated from a workstation requiring step-up two-factor verification. Enter the security code below to complete sign in:</p>
         <div class="otp-container">
           <div class="otp-label">2FA Login Code</div>
           <div class="otp-code">{{ otp_code }}</div>
           <div class="otp-validity">⏱ Valid for 10 minutes • Device Step-Up</div>
         </div>
         <div class="audit-card">
-          <div class="audit-row"><span>Attempted Terminal:</span><span class="audit-val">{{ device_name }}</span></div>
-          <div class="audit-row"><span>Source IP Address:</span><span class="audit-val">{{ ip_address }}</span></div>
+          <div class="audit-title">Access Request Telemetry</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Workstation</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{{ device_name }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Network IP</td>
+              <td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">{{ ip_address }}</td>
+            </tr>
+          </table>
         </div>
         <div class="notice-box"><strong>Security Notice:</strong> If you did not initiate this sign-in attempt, your credentials may be known to an unauthorized party. Change your password immediately.</div>
       </div>
-      <div class="footer">BloodMatch Transfusion Network • Autonomous Threat Defense Node</div>
+      <div class="footer">
+        BloodMatch Transfusion Network • Autonomous Threat Defense Node
+        <div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Telemetry Dispatch Node • Encrypted Relay</div>
+      </div>
     </div>
   </div>
 </body>
@@ -492,17 +513,34 @@ NEW_SESSION_HTML_FALLBACK = """
         <div class="greeting">Hello, {{ name }}</div>
         <p class="paragraph">Your BloodMatch account was authenticated from a new workstation session. Review the access telemetry below to ensure this session was authorized by you.</p>
         <div class="audit-card">
-          <div class="audit-title">New Session Telemetry</div>
-          <div class="audit-row"><span class="audit-label">Workstation</span><span class="audit-val">{{ device_name }}</span></div>
-          <div class="audit-row"><span class="audit-label">Origin Network IP</span><span class="audit-val">{{ ip_address }}</span></div>
-          <div class="audit-row"><span class="audit-label">Location</span><span class="audit-val">{{ location }}</span></div>
-          <div class="audit-row"><span class="audit-label">Timestamp</span><span class="audit-val">{{ timestamp }}</span></div>
+          <div class="audit-title" style="margin-bottom: 14px;">New Session Telemetry</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Workstation</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{{ device_name }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Origin Network IP</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">{{ ip_address }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Location</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{{ location }}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Timestamp</td>
+              <td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">{{ timestamp }}</td>
+            </tr>
+          </table>
         </div>
         <div class="notice-box">
           <strong>Security Notice:</strong> If this was not you, someone may have compromised your credentials. Log into your dashboard and remotely revoke this workstation in Security Settings immediately.
         </div>
       </div>
-      <div class="footer">BloodMatch Emergency Transfusion Network • Automated Session Registry<br>Real-Time Transfusion Node Monitor</div>
+      <div class="footer">
+        BloodMatch Emergency Transfusion Network • Automated Session Registry<br>Real-Time Transfusion Node Monitor
+        <div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Session Dispatch ID: BM-{{ timestamp }}</div>
+      </div>
     </div>
   </div>
 </body>

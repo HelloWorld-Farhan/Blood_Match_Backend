@@ -96,11 +96,13 @@ def parse_device_fingerprint(request: Request, client_device_id: Optional[str] =
     ua = request.headers.get("user-agent", "Unknown Device")
     device_id = client_device_id or request.headers.get("x-device-id") or str(uuid.uuid4())
 
-    # Detect Operating System
+    # Detect Operating System & Architecture
     os_name = "Unknown OS"
-    if "Windows" in ua:
+    if "Windows NT 10.0" in ua or "Windows NT 11.0" in ua:
+        os_name = "Windows 10/11" + (" (64-bit)" if "x64" in ua or "Win64" in ua else "")
+    elif "Windows" in ua:
         os_name = "Windows"
-    elif "Macintosh" in ua or "Mac OS" in ua:
+    elif "Macintosh" in ua or "Mac OS X" in ua:
         os_name = "macOS"
     elif "Linux" in ua and "Android" not in ua:
         os_name = "Linux"
@@ -109,35 +111,58 @@ def parse_device_fingerprint(request: Request, client_device_id: Optional[str] =
     elif "iPhone" in ua or "iPad" in ua:
         os_name = "iOS"
 
-    # Detect Browser
+    # Detect Browser & Exact Version
     browser_name = "Web Browser"
     if "Brave" in ua:
         browser_name = "Brave Secure Browser"
-    elif "Edg" in ua:
-        browser_name = "Microsoft Edge"
-    elif "Chrome" in ua and "Safari" in ua:
-        browser_name = "Google Chrome"
-    elif "Safari" in ua and "Chrome" not in ua:
-        browser_name = "Apple Safari"
-    elif "Firefox" in ua:
-        browser_name = "Mozilla Firefox"
+    elif "Edg/" in ua:
+        match = re.search(r"Edg/(\d+)", ua)
+        ver = f" {match.group(1)}" if match else ""
+        browser_name = f"Microsoft Edge{ver}"
+    elif "Chrome/" in ua and "Safari" in ua:
+        match = re.search(r"Chrome/(\d+)", ua)
+        ver = f" {match.group(1)}" if match else ""
+        browser_name = f"Google Chrome{ver}"
+    elif "Safari/" in ua and "Chrome" not in ua:
+        match = re.search(r"Version/(\d+)", ua)
+        ver = f" {match.group(1)}" if match else ""
+        browser_name = f"Apple Safari{ver}"
+    elif "Firefox/" in ua:
+        match = re.search(r"Firefox/(\d+)", ua)
+        ver = f" {match.group(1)}" if match else ""
+        browser_name = f"Mozilla Firefox{ver}"
 
     # Detect Device Form Factor
-    device_name = f"{os_name} Workstation"
+    form_factor = "Workstation"
     if "Mobile" in ua or "iPhone" in ua or "Android" in ua:
-        device_name = f"{os_name} Mobile Device"
+        form_factor = "Mobile"
     elif "iPad" in ua or "Tablet" in ua:
-        device_name = f"{os_name} Clinical Tablet"
+        form_factor = "Clinical Tablet"
 
-    # Resolve IP & Location
+    device_name = f"{os_name.split()[0]} {form_factor}"
+    browser_detail = f"{browser_name} • {os_name} ({form_factor})"
+
+    # Resolve IP & Dynamic Location (No hardcoded Metro Transfusion)
     ip_raw = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "127.0.0.1")
     ip_address = ip_raw.split(",")[0].strip()
-    location = "Metro Transfusion Center (Authorized Station)"
+
+    cf_city = request.headers.get("cf-ipcity")
+    cf_country = request.headers.get("cf-ipcountry-name") or request.headers.get("cf-ipcountry")
+
+    if cf_city and cf_country:
+        location = f"{cf_city}, {cf_country}"
+    elif ip_address in ("127.0.0.1", "::1", "localhost") or ip_address.startswith("192.168.") or ip_address.startswith("10."):
+        location = "Authorized Clinical Workstation (Local Network)"
+    elif ip_address.startswith("182.77.") or ip_address.startswith("182."):
+        location = "Authorized Clinical Workstation (Delhi, India)"
+    else:
+        location = f"Authorized Clinical Workstation ({ip_address})"
 
     return {
         "device_id": device_id,
         "device_name": device_name,
         "browser": browser_name,
+        "browser_detail": browser_detail,
         "os": os_name,
         "ip_address": ip_address,
         "location": location

@@ -96,7 +96,16 @@ function doPost(e) {
       return errorResponse("Missing recipient email address ('to')");
     }
 
-    var emailData = buildEmailContent(action, name, payload);
+    var emailData = null;
+    if (payload.html_body && payload.subject) {
+      emailData = {
+        subject: payload.subject,
+        textBody: payload.text_body || "",
+        htmlBody: payload.html_body
+      };
+    } else {
+      emailData = buildEmailContent(action, name, payload);
+    }
     if (!emailData) {
       return errorResponse("Unsupported or unrecognized action: " + action);
     }
@@ -259,9 +268,17 @@ function build2FALoginEmail(name, payload) {
         '<div class="otp-validity">⏱ Valid for 10 minutes • Single-use authorization</div>' +
       '</div>' +
       '<div class="audit-card">' +
-        '<div class="audit-title">Access Request Telemetry</div>' +
-        '<div class="audit-row"><span class="audit-label">Workstation</span><span class="audit-val">' + escapeHtml(device) + '</span></div>' +
-        '<div class="audit-row"><span class="audit-label">Network IP</span><span class="audit-val">' + escapeHtml(ip) + '</span></div>' +
+        '<div class="audit-title" style="margin-bottom: 12px;">Access Request Telemetry</div>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Workstation</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(device) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Network IP</td>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">' + escapeHtml(ip) + '</td>' +
+          '</tr>' +
+        '</table>' +
       '</div>' +
       '<div class="notice-box">' +
         '<strong>Security Notice:</strong> If you did not initiate this login request, change your password immediately to protect your clinical account.' +
@@ -270,6 +287,7 @@ function build2FALoginEmail(name, payload) {
     '<div class="footer">' +
       'BloodMatch Emergency Transfusion Network • Automated Security Gate<br>' +
       'Tier-4 Encrypted • 256-Bit TLS Verification Node' +
+      '<div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Security Dispatch #' + new Date().getTime().toString(36).toUpperCase() + ' • ' + (new Date().toISOString()) + '</div>' +
     '</div>';
 
   return {
@@ -308,11 +326,25 @@ function buildNewSessionEmail(name, payload) {
       '<div class="greeting">Hello, ' + escapeHtml(name) + '</div>' +
       '<p class="paragraph">Your BloodMatch account was authenticated from a new workstation session. Review the access telemetry below to ensure this session was authorized by you.</p>' +
       '<div class="audit-card">' +
-        '<div class="audit-title">New Session Telemetry</div>' +
-        '<div class="audit-row"><span class="audit-label">Workstation</span><span class="audit-val">' + escapeHtml(device) + '</span></div>' +
-        '<div class="audit-row"><span class="audit-label">Origin Network IP</span><span class="audit-val">' + escapeHtml(ip) + '</span></div>' +
-        '<div class="audit-row"><span class="audit-label">Location</span><span class="audit-val">' + escapeHtml(location) + '</span></div>' +
-        '<div class="audit-row"><span class="audit-label">Timestamp</span><span class="audit-val">' + escapeHtml(timestamp) + '</span></div>' +
+        '<div class="audit-title" style="margin-bottom: 12px;">New Session Telemetry</div>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Workstation</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(device) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Origin Network IP</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">' + escapeHtml(ip) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Location</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(location) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Timestamp</td>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">' + escapeHtml(timestamp) + '</td>' +
+          '</tr>' +
+        '</table>' +
       '</div>' +
       '<div class="notice-box">' +
         '<strong>Security Notice:</strong> If this was not you, someone may have compromised your credentials. Log into your dashboard and remotely revoke this workstation in Security Settings immediately.' +
@@ -321,6 +353,7 @@ function buildNewSessionEmail(name, payload) {
     '<div class="footer">' +
       'BloodMatch Emergency Transfusion Network • Automated Session Registry<br>' +
       'Real-Time Transfusion Node Monitor' +
+      '<div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Session Dispatch #' + new Date().getTime().toString(36).toUpperCase() + ' • ' + (payload.timestamp || new Date().toISOString()) + '</div>' +
     '</div>';
 
   return {
@@ -401,10 +434,21 @@ function buildPasswordChangedEmail(name, payload) {
       '<div class="greeting">Hello, ' + escapeHtml(name) + '</div>' +
       '<p class="paragraph">This automated security advisory confirms that the access password for your clinical account has been updated successfully. Active sessions have been audited and cryptographic tokens regenerated.</p>' +
       '<div class="audit-card">' +
-        '<div class="audit-title">Security Event Audit Trail</div>' +
-        '<div class="audit-row"><span class="audit-label">Timestamp</span><span class="audit-val">' + escapeHtml(timestamp) + '</span></div>' +
-        '<div class="audit-row"><span class="audit-label">Terminal / Device</span><span class="audit-val">' + escapeHtml(device) + '</span></div>' +
-        '<div class="audit-row"><span class="audit-label">Origin Network IP</span><span class="audit-val">' + escapeHtml(ip) + '</span></div>' +
+        '<div class="audit-title" style="margin-bottom: 12px;">Security Event Audit Trail</div>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Timestamp</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">' + escapeHtml(timestamp) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Terminal / Device</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(device) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Origin Network IP</td>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">' + escapeHtml(ip) + '</td>' +
+          '</tr>' +
+        '</table>' +
       '</div>' +
       '<div class="notice-box">' +
         '<strong>Important:</strong> If you did not make this change, your credentials may be compromised. Lock down your terminal and report this incident to your facility trauma administrator immediately.' +
@@ -413,6 +457,7 @@ function buildPasswordChangedEmail(name, payload) {
     '<div class="footer">' +
       'BloodMatch Emergency Transfusion Network • Automated Security Gate<br>' +
       'Tier-4 Encrypted • HIPAA Compliant' +
+      '<div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Audit Ref: #' + (payload.timestamp || new Date().toISOString()) + '</div>' +
     '</div>';
 
   return {
@@ -496,6 +541,7 @@ function buildWelcomeEmail(name, payload) {
     '<div class="footer">' +
       'BloodMatch Emergency Transfusion Network<br>' +
       'If you have questions or need assistance, contact our support team.' +
+      '<div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Registration Ref: #' + new Date().getTime().toString(36).toUpperCase() + '</div>' +
     '</div>';
 
   return {

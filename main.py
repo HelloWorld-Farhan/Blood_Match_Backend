@@ -726,14 +726,15 @@ def verify_otp(
     # Create active session for the verified user with error containment
     session_id = None
     try:
+        reg_fp = parse_device_fingerprint(request)
         session_record = UserSessionModel(
             user_id=user.id,
-            device_id="initial-registration",
-            device_name="Workstation Browser",
-            browser="Browser",
-            os="Client OS",
-            ip_address="127.0.0.1",
-            location="Metro Transfusion Center",
+            device_id=reg_fp.get("device_id") or "initial-registration",
+            device_name=reg_fp.get("device_name") or "Workstation Browser",
+            browser=reg_fp.get("browser") or "Browser",
+            os=reg_fp.get("os") or "Client OS",
+            ip_address=reg_fp.get("ip_address") or "127.0.0.1",
+            location=reg_fp.get("location") or "Authorized Clinical Workstation",
             status="active"
         )
         db.add(session_record)
@@ -1907,15 +1908,16 @@ def confirm_password_reset(
 
     # 5. Requirement 4: Security Notification Email with audit details
     audit_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    device_info = request.headers.get("user-agent", "Unknown Device / Web Browser")
-    ip_address = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "Unknown IP")
+    fp = parse_device_fingerprint(request)
+    device_info = fp.get("browser_detail") or f"{fp.get('browser', 'Web Browser')} on {fp.get('os', 'Workstation')}"
+    ip_address = fp.get("ip_address") or "Unknown IP"
 
     send_password_changed_notification(
         recipient_email=user.email,
         recipient_name=user.full_name,
         timestamp=audit_timestamp,
-        device_info=device_info[:150],
-        ip_address=ip_address.split(",")[0].strip()
+        device_info=device_info,
+        ip_address=ip_address
     )
 
     try:
@@ -2055,15 +2057,16 @@ def update_password_by_previous(
 
     # 7. Security Notification Email with audit details (No OTP used)
     audit_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    device_info = request.headers.get("user-agent", "Unknown Device / Web Browser")
-    ip_address = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "Unknown IP")
+    fp = parse_device_fingerprint(request)
+    device_info = fp.get("browser_detail") or f"{fp.get('browser', 'Web Browser')} on {fp.get('os', 'Workstation')}"
+    ip_address = fp.get("ip_address") or "Unknown IP"
 
     send_password_changed_notification(
         recipient_email=user.email,
         recipient_name=user.full_name,
         timestamp=audit_timestamp,
-        device_info=device_info[:150],
-        ip_address=ip_address.split(",")[0].strip()
+        device_info=device_info,
+        ip_address=ip_address
     )
 
     try:
