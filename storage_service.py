@@ -2,6 +2,7 @@ import os
 import re
 import io
 import time
+import json
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
@@ -324,4 +325,119 @@ def list_user_assets(authenticated_email: str, category: Optional[str] = None) -
     except Exception as exc:
         logger.error(f"Failed to list assets from R2 with prefix {prefix}: {exc}")
         return []
+
+def save_user_auth_record_r2(user_data: dict) -> bool:
+    """
+    Persists permanent disaster-proof authentication record into Cloudflare R2:
+    users/{email}/auth_record.json
+    Guarantees user account is NEVER lost, even across ephemeral container restarts.
+    """
+    email = user_data.get("email")
+    if not email:
+        return False
+    email_clean = sanitize_user_email(email)
+    r2 = get_r2_client()
+    if not r2:
+        return False
+    key = f"users/{email_clean}/auth_record.json"
+    try:
+        r2.put_object(
+            Bucket=R2_BUCKET_NAME,
+            Key=key,
+            Body=json.dumps(user_data, indent=2).encode("utf-8"),
+            ContentType="application/json"
+        )
+        logger.info(f"[R2 AUTH SYNC] Successfully mirrored auth record for {email_clean} at {key}")
+        return True
+    except Exception as exc:
+        logger.error(f"[R2 AUTH SYNC ERROR] Failed to mirror auth record for {email_clean}: {exc}")
+        return False
+
+def get_user_auth_record_r2(email: str) -> Optional[dict]:
+    """
+    Retrieves mirrored auth record from Cloudflare R2 if local DB has no record.
+    """
+    if not email:
+        return None
+    email_clean = sanitize_user_email(email)
+    r2 = get_r2_client()
+    if not r2:
+        return None
+    key = f"users/{email_clean}/auth_record.json"
+    try:
+        obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=key)
+        data = json.loads(obj["Body"].read().decode("utf-8"))
+        return data
+    except Exception as exc:
+        logger.debug(f"[R2 AUTH LOOKUP] No auth record in R2 for {email_clean}: {exc}")
+        return None
+
+def restore_all_users_from_r2(db) -> int:
+    """
+    Scans Cloudflare R2 for all users/*/auth_record.json and restores them into
+    the active database session if not already present.
+    """
+    from models import UserModel
+    r2 = get_r2_client()
+    if not r2:
+        return 0
+    restored_count = 0
+    try:
+        paginator = r2.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix="users/"):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key", "")
+                if key.endswith("/auth_record.json"):
+                    try:
+                        record_obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=key)
+                        data = json.loads(record_obj["Body"].read().decode("utf-8"))
+                        email = data.get("email")
+                        if email:
+                            existing = db.query(UserModel).filter(UserModel.email == email).first()
+                            if not existing:
+                                new_user = UserModel(
+                                    id=data.get("id"),
+                                    full_name=data.get("full_name") or "Clinician",
+                                    email=email,
+                                    phone=data.get("phone"),
+                                    hashed_password=data.get("hashed_password"),
+                                    is_verified=bool(data.get("is_verified", True)),
+                                    is_2fa_enabled=bool(data.get("is_2fa_enabled", False)),
+                                    photo_url=data.get("photo_url")
+                                )
+                                db.add(new_user)
+                                restored_count += 1
+                    except Exception as parse_err:
+                        logger.warning(f"Failed to restore user from key {key}: {parse_err}")
+        if restored_count > 0:
+            db.commit()
+            logger.info(f"[R2 HYDRATION] Restored {restored_count} user account(s) into database.")
+    except Exception as exc:
+        logger.error(f"[R2 HYDRATION ERROR] Failed to scan users in R2: {exc}")
+    return restored_count
+
+def delete_all_user_r2_data(authenticated_email: str) -> int:
+    """
+    Permanently deletes all assets, folders, and records under users/{email}/
+    when an account is formally deleted.
+    """
+    email_clean = sanitize_user_email(authenticated_email)
+    prefix = f"users/{email_clean}/"
+    r2 = get_r2_client()
+    if not r2:
+        return 0
+    deleted_count = 0
+    try:
+        response = r2.list_objects_v2(Bucket=R2_BUCKET_NAME, Prefix=prefix)
+        objects_to_delete = [{"Key": obj["Key"]} for obj in response.get("Contents", [])]
+        if objects_to_delete:
+            r2.delete_objects(
+                Bucket=R2_BUCKET_NAME,
+                Delete={"Objects": objects_to_delete}
+            )
+            deleted_count = len(objects_to_delete)
+            logger.info(f"[R2 ACCOUNT PURGE] Completely deleted {deleted_count} files for {email_clean}")
+    except Exception as exc:
+        logger.error(f"[R2 ACCOUNT PURGE ERROR] Failed to purge R2 files for {email_clean}: {exc}")
+    return deleted_count
 

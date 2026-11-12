@@ -828,3 +828,49 @@ def send_donor_thankyou_email(recipient_email: str, recipient_name: str, blood_t
         logger.info(f"[DONOR THANK YOU DISPATCH] Recipient: {recipient_email} | Name: {recipient_name} | Blood: {blood_type} | Location: {location}")
         return True
     return _dispatch_smtp("Thank You for Registering as a Voluntary Blood Donor - BloodMatch", recipient_email, rendered_text, rendered_html)
+
+def send_account_deletion_otp_email(recipient_email: str, recipient_name: str, otp_code: str) -> bool:
+    """Dispatches the critical 6-digit confirmation code for permanent account deletion."""
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "otp_code": otp_code,
+        "action": "account_deletion_request"
+    }
+    if _dispatch_google_apps_script("account_deletion_otp", gas_payload):
+        return True
+
+    text_body = f"Hello {recipient_name},\n\nWe received an authorization request to permanently delete your BloodMatch account and all associated donor records.\nYour 6-digit deletion authorization code is: {otp_code}\n\nIf you did NOT request this deletion, change your password immediately."
+    html_body = f"""
+    <div style="font-family: sans-serif; max-width: 500px; padding: 24px; border: 1px solid #fee2e2; border-radius: 12px; background: #fff5f5;">
+        <h2 style="color: #991b1b; margin-top: 0;">Account Deletion Authorization</h2>
+        <p>Hello <strong>{recipient_name}</strong>,</p>
+        <p>A request was received to permanently delete your BloodMatch account, donor registrations, and all cloud files.</p>
+        <div style="background: #ffffff; border: 2px dashed #dc2626; border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0;">
+            <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #dc2626;">{otp_code}</span>
+        </div>
+        <p style="font-size: 13px; color: #7f1d1d;">This code expires in 10 minutes. If you did not initiate this request, your account may be compromised.</p>
+    </div>
+    """
+    return _dispatch_smtp("URGENT: BloodMatch Account Deletion Authorization Code", recipient_email, text_body, html_body)
+
+def send_account_deleted_confirmation_email(recipient_email: str, recipient_name: str) -> bool:
+    """Dispatches final confirmation that account and all associated records have been wiped."""
+    gas_payload = {
+        "to": recipient_email,
+        "name": recipient_name,
+        "action": "account_deleted_confirmed"
+    }
+    if _dispatch_google_apps_script("account_deleted", gas_payload):
+        return True
+
+    text_body = f"Hello {recipient_name},\n\nThis confirms that your BloodMatch account, donor profile, emergency records, and cloud storage files have been completely and permanently deleted as requested.\n\nThank you for using BloodMatch."
+    html_body = f"""
+    <div style="font-family: sans-serif; max-width: 500px; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc;">
+        <h2 style="color: #0f172a; margin-top: 0;">Account Successfully Deleted</h2>
+        <p>Hello <strong>{recipient_name}</strong>,</p>
+        <p>This email confirms that your BloodMatch account, voluntary donor registry entries, and all associated cloud storage data have been permanently purged from our servers.</p>
+        <p style="font-size: 13px; color: #64748b; margin-top: 24px;">If you wish to use BloodMatch in the future, you may register a brand-new profile at any time.</p>
+    </div>
+    """
+    return _dispatch_smtp("Your BloodMatch Account Has Been Successfully Deleted", recipient_email, text_body, html_body)

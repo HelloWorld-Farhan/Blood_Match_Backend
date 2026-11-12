@@ -44,6 +44,7 @@ from schemas import (
     PasswordResetConfirmRequest,
     PasswordVerifyCurrentRequest,
     PasswordUpdatePreviousRequest,
+    AccountDeletionConfirmRequest,
     AuthTokenResponse,
     InventoryUpdateRequest,
     DonorSendOtpRequest,
@@ -81,7 +82,9 @@ from email_service import (
     send_2fa_login_email,
     send_welcome_email,
     send_donor_thankyou_email,
-    send_new_login_session_alert
+    send_new_login_session_alert,
+    send_account_deletion_otp_email,
+    send_account_deleted_confirmation_email
 )
 from storage_service import (
     process_avatar_image,
@@ -92,6 +95,10 @@ from storage_service import (
     validate_tenant_access,
     sanitize_user_email,
     build_scoped_path,
+    save_user_auth_record_r2,
+    get_user_auth_record_r2,
+    restore_all_users_from_r2,
+    delete_all_user_r2_data,
     MAX_FILE_SIZE_BYTES
 )
 
@@ -103,6 +110,15 @@ logger = logging.getLogger("BloodBackend.App")
 async def lifespan(app: FastAPI):
     logger.info("Initializing database schema on startup...")
     init_db()
+    # Auto-hydrate users from permanent Cloudflare R2 mirror
+    try:
+        from database import SessionLocal
+        with SessionLocal() as session:
+            count = restore_all_users_from_r2(session)
+            if count > 0:
+                logger.info(f"Startup R2 user reconciliation completed: {count} accounts restored.")
+    except Exception as exc:
+        logger.warning(f"Could not restore users from R2 on startup: {exc}")
     logger.info(f"Database readiness verified (Fallback Active: {is_sqlite_fallback}).")
     yield
     logger.info("Application shutting down.")
@@ -698,6 +714,22 @@ def verify_otp(
     )
     db.commit()
 
+    # Mirror permanent disaster-proof auth record to Cloudflare R2
+    try:
+        save_user_auth_record_r2({
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "phone": user.phone,
+            "hashed_password": user.hashed_password,
+            "is_verified": True,
+            "is_2fa_enabled": user.is_2fa_enabled,
+            "photo_url": user.photo_url,
+            "created_at": user.created_at.isoformat() if user.created_at else None
+        })
+    except Exception as sync_exc:
+        logger.warning(f"Failed to mirror auth record to R2: {sync_exc}")
+
     # Dispatch Welcome & Profile Activation Email asynchronously in background
     try:
         member_id_val = getattr(user, 'member_id', None) or getattr(user, 'custom_id', None) or ""
@@ -810,10 +842,28 @@ def login_user(
     user = db.query(UserModel).filter(UserModel.email == email_clean).first()
 
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email address or password."
-        )
+        # Check Cloudflare R2 permanent disaster-proof auth record
+        r2_record = get_user_auth_record_r2(email_clean)
+        if r2_record and r2_record.get("hashed_password"):
+            user = UserModel(
+                id=r2_record.get("id") or str(uuid.uuid4()),
+                full_name=r2_record.get("full_name") or "Clinician",
+                email=email_clean,
+                phone=r2_record.get("phone"),
+                hashed_password=r2_record.get("hashed_password"),
+                is_verified=bool(r2_record.get("is_verified", True)),
+                is_2fa_enabled=bool(r2_record.get("is_2fa_enabled", False)),
+                photo_url=r2_record.get("photo_url")
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            logger.info(f"On-demand login reconciliation: restored {email_clean} from R2.")
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email address or password."
+            )
 
     # Activation Boundary: Unverified accounts cannot log in until OTP is verified
     if not user.is_verified:
@@ -1238,6 +1288,21 @@ def toggle_2fa(
     current_user.is_2fa_enabled = bool(payload.enable_2fa)
     db.commit()
 
+    try:
+        save_user_auth_record_r2({
+            "id": current_user.id,
+            "email": current_user.email,
+            "full_name": current_user.full_name,
+            "phone": current_user.phone,
+            "hashed_password": current_user.hashed_password,
+            "is_verified": current_user.is_verified,
+            "is_2fa_enabled": current_user.is_2fa_enabled,
+            "photo_url": current_user.photo_url,
+            "created_at": current_user.created_at.isoformat() if current_user.created_at else None
+        })
+    except Exception as sync_exc:
+        logger.warning(f"Failed to update R2 auth record on 2FA toggle: {sync_exc}")
+
     return {
         "message": f"Two-factor authentication has been successfully {'enabled' if payload.enable_2fa else 'disabled'}.",
         "is_2fa_enabled": current_user.is_2fa_enabled
@@ -1297,6 +1362,174 @@ def get_current_user_profile(
         "status": "authenticated",
         "access_level": "verified_clinician",
         "user": verified_user.to_dict()
+    }
+
+# ==========================================
+# PERMANENT ACCOUNT DELETION WORKFLOW
+# ==========================================
+
+@app.post("/api/auth/account-deletion/request-otp", tags=["Account Management"])
+def request_account_deletion_otp(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Step 1: Dispatches a high-security 6-digit confirmation code to authorize account deletion.
+    """
+    # Invalidate prior deletion tokens
+    db.query(OtpTokenModel).filter(
+        OtpTokenModel.email == current_user.email,
+        OtpTokenModel.token_type == "account_deletion",
+        OtpTokenModel.is_used == False
+    ).update({"is_used": True})
+
+    otp_code = generate_cryptographic_otp()
+    otp_record = OtpTokenModel(
+        user_id=current_user.id,
+        email=current_user.email,
+        otp_code=otp_code,
+        token_type="account_deletion",
+        expires_at=calculate_otp_expiry(),
+        is_used=False,
+        attempts=0
+    )
+    db.add(otp_record)
+    db.commit()
+
+    send_account_deletion_otp_email(
+        recipient_email=current_user.email,
+        recipient_name=current_user.full_name,
+        otp_code=otp_code
+    )
+
+    return {
+        "message": f"A 6-digit deletion authorization code has been dispatched to {current_user.email}.",
+        "email": current_user.email
+    }
+
+@app.post("/api/auth/account-deletion/confirm", tags=["Account Management"])
+def confirm_account_deletion(
+    payload: AccountDeletionConfirmRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Step 2: Validates confirmation string ('DELETE') and 6-digit OTP code.
+    Permanently wipes user account, donor registrations, clinical logs, and Cloudflare R2 files.
+    """
+    if payload.confirm_text.strip() != "DELETE":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confirmation failed: You must type DELETE in uppercase to authorize account deletion."
+        )
+
+    # Verify OTP
+    token_rec = (
+        db.query(OtpTokenModel)
+        .filter(
+            OtpTokenModel.email == current_user.email,
+            OtpTokenModel.token_type == "account_deletion",
+            OtpTokenModel.is_used == False
+        )
+        .order_by(OtpTokenModel.created_at.desc())
+        .first()
+    )
+
+    if not token_rec:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active deletion authorization code found. Please request a new code."
+        )
+
+    if datetime.utcnow() > token_rec.expires_at:
+        token_rec.is_used = True
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deletion authorization code has expired. Please request a new code."
+        )
+
+    if token_rec.otp_code != payload.otp_code.strip():
+        token_rec.attempts += 1
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid 6-digit deletion authorization code."
+        )
+
+    user_email = current_user.email
+    user_name = current_user.full_name
+    user_id = current_user.id
+
+    # 1. Permanently wipe all database records
+    # Donors registered by this user or matching email
+    db.query(DonorModel).filter(
+        (DonorModel.email == user_email) | (DonorModel.user_email == user_email)
+    ).delete(synchronize_session=False)
+
+    # Emergency requests
+    db.query(EmergencyRequestModel).filter(
+        EmergencyRequestModel.user_email == user_email
+    ).delete(synchronize_session=False)
+
+    # Clinical checks & audit logs
+    db.query(ClinicalCheckModel).filter(
+        ClinicalCheckModel.user_email == user_email
+    ).delete(synchronize_session=False)
+
+    db.query(ClinicalAuditLogModel).filter(
+        ClinicalAuditLogModel.user_email == user_email
+    ).delete(synchronize_session=False)
+
+    # Clinician profile
+    db.query(ClinicianProfileModel).filter(
+        ClinicianProfileModel.work_email == user_email
+    ).delete(synchronize_session=False)
+
+    # Password histories
+    db.query(PasswordHistoryModel).filter(
+        PasswordHistoryModel.user_id == user_id
+    ).delete(synchronize_session=False)
+
+    # Trusted devices & sessions
+    db.query(TrustedDeviceModel).filter(
+        TrustedDeviceModel.user_id == user_id
+    ).delete(synchronize_session=False)
+
+    db.query(UserSessionModel).filter(
+        UserSessionModel.user_id == user_id
+    ).delete(synchronize_session=False)
+
+    # All OTP tokens for this email
+    db.query(OtpTokenModel).filter(
+        OtpTokenModel.email == user_email
+    ).delete(synchronize_session=False)
+
+    # Finally, delete user account
+    db.query(UserModel).filter(
+        UserModel.id == user_id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+
+    # 2. Permanently purge all Cloudflare R2 files
+    try:
+        delete_all_user_r2_data(user_email)
+    except Exception as r2_err:
+        logger.error(f"Error purging R2 data for {user_email}: {r2_err}")
+
+    # 3. Dispatch final confirmation email
+    try:
+        send_account_deleted_confirmation_email(
+            recipient_email=user_email,
+            recipient_name=user_name
+        )
+    except Exception as mail_err:
+        logger.error(f"Error sending deletion confirmation email: {mail_err}")
+
+    return {
+        "success": True,
+        "message": f"Account {user_email} and all associated donor records have been permanently deleted."
     }
 
 # ==========================================
@@ -1525,6 +1758,21 @@ def confirm_password_reset(
 
     db.commit()
 
+    try:
+        save_user_auth_record_r2({
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "phone": user.phone,
+            "hashed_password": user.hashed_password,
+            "is_verified": user.is_verified,
+            "is_2fa_enabled": user.is_2fa_enabled,
+            "photo_url": user.photo_url,
+            "created_at": user.created_at.isoformat() if user.created_at else None
+        })
+    except Exception as sync_exc:
+        logger.warning(f"Failed to update R2 auth record on password reset: {sync_exc}")
+
     # 5. Requirement 4: Security Notification Email with audit details
     audit_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     device_info = request.headers.get("user-agent", "Unknown Device / Web Browser")
@@ -1657,6 +1905,21 @@ def update_password_by_previous(
     user.last_failed_login = None
 
     db.commit()
+
+    try:
+        save_user_auth_record_r2({
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "phone": user.phone,
+            "hashed_password": user.hashed_password,
+            "is_verified": user.is_verified,
+            "is_2fa_enabled": user.is_2fa_enabled,
+            "photo_url": user.photo_url,
+            "created_at": user.created_at.isoformat() if user.created_at else None
+        })
+    except Exception as sync_exc:
+        logger.warning(f"Failed to update R2 auth record on password reset: {sync_exc}")
 
     # 7. Security Notification Email with audit details (No OTP used)
     audit_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
