@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, EmailStr
 
 class InventoryUpdateRequest(BaseModel):
@@ -135,3 +135,21 @@ class ClinicalAuditLogCreateRequest(BaseModel):
     entity_type: str = Field(..., min_length=1, max_length=50)
     entity_id: Optional[str] = None
     details: Optional[str] = None
+
+class EmergencyDispatchDonorRequest(BaseModel):
+    donor_email: str = Field(..., min_length=5, max_length=150)
+    donor_name: str = Field(..., min_length=1, max_length=120)
+    blood_type: str = Field(..., min_length=2, max_length=10)
+    patient_name: str = Field(..., min_length=1, max_length=120)
+    hospital: str = Field(..., min_length=1, max_length=150)
+    hospital_city: str = Field("Delhi", max_length=100)
+    contact_number: str = Field(..., min_length=5, max_length=30)
+    distance_km: float = 0.0
+    custom_message: Optional[str] = None
+
+class EmergencyRosterEmailRequest(BaseModel):
+    clinician_email: str = Field(..., min_length=5, max_length=150)
+    clinician_name: str = Field(..., min_length=1, max_length=120)
+    recipient_blood_type: str = Field(..., min_length=2, max_length=10)
+    patient_name: Optional[str] = None
+    roster_items: List[dict] = Field(default_factory=list)

@@ -53,6 +53,8 @@ from schemas import (
     EmergencyCreateRequest,
     ClinicianProfileRequest,
     ProfileUpdateRequest,
+    EmergencyDispatchDonorRequest,
+    EmergencyRosterEmailRequest,
     ClinicalCheckCreateRequest,
     ClinicalDocumentCreateRequest,
     ClinicalAuditLogCreateRequest
@@ -86,7 +88,9 @@ from email_service import (
     send_donor_thankyou_email,
     send_new_login_session_alert,
     send_account_deletion_otp_email,
-    send_account_deleted_confirmation_email
+    send_account_deleted_confirmation_email,
+    send_emergency_donor_dispatch_email,
+    send_clinician_donor_roster_email
 )
 from storage_service import (
     process_avatar_image,
@@ -2522,6 +2526,60 @@ def delete_emergency_request(
         sync_user_state_to_r2(target_email, db)
 
     return {"message": "Emergency request deleted successfully.", "deleted_id": request_id}
+
+@app.post("/api/emergency/dispatch-donor", tags=["Emergency"])
+def dispatch_emergency_donor_alert(
+    payload: EmergencyDispatchDonorRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Dispatches real-time emergency mobilization email directly to a compatible voluntary donor.
+    """
+    background_tasks.add_task(
+        send_emergency_donor_dispatch_email,
+        donor_email=payload.donor_email,
+        donor_name=payload.donor_name,
+        blood_type=payload.blood_type,
+        patient_name=payload.patient_name,
+        hospital=payload.hospital,
+        hospital_city=payload.hospital_city,
+        contact_number=payload.contact_number,
+        distance_km=payload.distance_km,
+        custom_message=payload.custom_message
+    )
+
+    return {
+        "ok": True,
+        "message": f"Emergency dispatch alert transmitted to {payload.donor_name} ({payload.donor_email}).",
+        "donor_email": payload.donor_email,
+        "dispatched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    }
+
+@app.post("/api/emergency/email-roster", tags=["Emergency"])
+def email_clinician_donor_roster(
+    payload: EmergencyRosterEmailRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Dispatches top proximity-sorted compatible donor roster to the clinician for offline backup.
+    """
+    background_tasks.add_task(
+        send_clinician_donor_roster_email,
+        clinician_email=payload.clinician_email,
+        clinician_name=payload.clinician_name,
+        recipient_blood_type=payload.recipient_blood_type,
+        roster_items=payload.roster_items,
+        patient_name=payload.patient_name
+    )
+
+    return {
+        "ok": True,
+        "message": f"Top donor roster docket dispatched to clinician {payload.clinician_email}.",
+        "clinician_email": payload.clinician_email,
+        "count": len(payload.roster_items)
+    }
 
 # ==========================================
 # CLINICIAN PROFILE ENDPOINTS

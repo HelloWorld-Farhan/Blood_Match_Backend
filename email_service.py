@@ -912,3 +912,190 @@ def send_account_deleted_confirmation_email(recipient_email: str, recipient_name
     </div>
     """
     return _dispatch_smtp("Your BloodMatch Account Has Been Successfully Deleted", recipient_email, text_body, html_body)
+
+def send_emergency_donor_dispatch_email(
+    donor_email: str,
+    donor_name: str,
+    blood_type: str,
+    patient_name: str,
+    hospital: str,
+    hospital_city: str,
+    contact_number: str,
+    distance_km: float,
+    custom_message: Optional[str] = None
+) -> bool:
+    """Dispatches high-urgency mobilization call to a compatible voluntary donor."""
+    subject = f"🚨 URGENT: Blood Donation Needed ({blood_type}) - Emergency Dispatch"
+    
+    gas_payload = {
+        "to": donor_email,
+        "name": donor_name,
+        "blood_type": blood_type,
+        "patient_name": patient_name,
+        "hospital": hospital,
+        "hospital_city": hospital_city,
+        "contact_number": contact_number,
+        "distance_km": distance_km,
+        "custom_message": custom_message or "",
+        "action": "emergency_donor_dispatch"
+    }
+    if _dispatch_google_apps_script("emergency_donor_dispatch", gas_payload):
+        return True
+
+    text_body = f"URGENT CLINICAL MOBILIZATION NOTICE\n\nHello {donor_name},\n\nAn emergency transfusion request requires your compatible {blood_type} blood.\n\nPatient: {patient_name}\nFacility: {hospital}, {hospital_city}\nDistance from your locality: ~{distance_km:.1f} km\nEmergency Contact: {contact_number}\n\nClinical Note: {custom_message or 'Immediate donor dispatch requested.'}\n\nPlease call the emergency contact number immediately if you can donate."
+    
+    html_body = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Emergency Blood Donation Dispatch</title>
+      <style>
+        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }}
+        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }}
+        .card {{ max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1.5px solid #D72638; border-radius: 20px; overflow: hidden; }}
+        .header {{ padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }}
+        .brand-pill {{ display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 800; color: #D72638; text-transform: uppercase; }}
+        .content {{ padding: 32px; }}
+        .title {{ font-size: 22px; font-weight: 900; color: #7A0C17; margin: 0 0 10px 0; }}
+        .greeting {{ font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }}
+        .paragraph {{ font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }}
+        .audit-card {{ background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }}
+        .notice-box {{ background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }}
+        .footer {{ border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+      </style>
+    </head>
+    <body>
+      <div class="wrapper">
+        <div class="card">
+          <div class="header"><span class="brand-pill">Urgent Transfusion Call</span></div>
+          <div class="content">
+            <h1 class="title">Emergency Blood Dispatch</h1>
+            <div class="greeting">Hello, {donor_name}</div>
+            <p class="paragraph">A critical trauma transfusion requires your compatible <strong>Group {blood_type}</strong> blood. You were identified as an enrolled voluntary donor in close proximity to the attending medical facility.</p>
+            <div class="audit-card">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Patient / Case</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{patient_name}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Attending Hospital</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{hospital}, {hospital_city}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Proximity Distance</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: 800; text-align: right;">~{distance_km:.1f} km away</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500;">Emergency Hotline</td>
+                  <td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;"><a href="tel:{contact_number}" style="color: #D72638; text-decoration: none;">{contact_number}</a></td>
+                </tr>
+              </table>
+            </div>
+            <div class="notice-box">
+              <strong>Clinical Message:</strong> {custom_message or 'Please contact the attending hospital number immediately if you are available for donation.'}
+            </div>
+          </div>
+          <div class="footer">
+            BloodMatch Emergency Transfusion Network • Rapid Mobilization Node
+            <div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Dispatch Ref: #{donor_email[:4]}-{int(distance_km*10)}</div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+    return _dispatch_smtp(subject, donor_email, text_body, html_body)
+
+def send_clinician_donor_roster_email(
+    clinician_email: str,
+    clinician_name: str,
+    recipient_blood_type: str,
+    roster_items: list,
+    patient_name: Optional[str] = None
+) -> bool:
+    """Dispatches top-5 proximity sorted compatible donor roster to the clinician for offline backup."""
+    subject = f"Clinical Emergency Donor Roster: {recipient_blood_type} Transfusion"
+    
+    gas_payload = {
+        "to": clinician_email,
+        "name": clinician_name,
+        "recipient_blood_type": recipient_blood_type,
+        "patient_name": patient_name or "Emergency Transfusion Case",
+        "roster_items": roster_items,
+        "action": "clinician_donor_roster"
+    }
+    if _dispatch_google_apps_script("clinician_donor_roster", gas_payload):
+        return True
+
+    rows_text = ""
+    rows_html = ""
+    for idx, d in enumerate(roster_items[:10], start=1):
+        name = d.get("fullName", "Donor")
+        btype = d.get("bloodType", "")
+        phone = d.get("phone", "")
+        dist = d.get("distanceKm", 0.0)
+        loc = d.get("location", "")
+        rows_text += f"#{idx} | {name} ({btype}) | ~{dist:.1f} km | {loc} | {phone}\n"
+        rows_html += f"""
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: bold;">#{idx}</td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; font-weight: 700;">{name}</td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #7A0C17; font-weight: bold;">{btype}</td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #047857; font-weight: bold;">{dist:.1f} km</td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #5A626A;">{loc}</td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; font-weight: 700; text-align: right;"><a href="tel:{phone}" style="color: #1A1D20; text-decoration: none;">{phone}</a></td>
+        </tr>
+        """
+
+    text_body = f"BloodMatch Emergency Transfusion Network\nRanked Compatible Donor Roster for Group {recipient_blood_type}\n\n{rows_text}\nGenerated for Dr. {clinician_name}."
+    
+    html_body = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Emergency Donor Roster</title>
+      <style>
+        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }}
+        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }}
+        .card {{ max-width: 560px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }}
+        .header {{ padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }}
+        .brand-pill {{ display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }}
+        .content {{ padding: 32px; }}
+        .title {{ font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }}
+        .audit-card {{ background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 16px 18px; margin: 20px 0; }}
+        .footer {{ border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+      </style>
+    </head>
+    <body>
+      <div class="wrapper">
+        <div class="card">
+          <div class="header"><span class="brand-pill">Emergency Donor Roster</span></div>
+          <div class="content">
+            <h1 class="title">Compatible Donors (Group {recipient_blood_type})</h1>
+            <p style="font-size: 13px; color: #5A626A;">The following voluntary donors have been verified and ranked by proximity to your search coordinates for emergency transfusion dispatch:</p>
+            <div class="audit-card">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                <tr style="border-bottom: 1.5px solid #D9C7C2;">
+                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">RANK</th>
+                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">NAME</th>
+                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">TYPE</th>
+                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">DISTANCE</th>
+                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">LOCALITY</th>
+                  <th style="padding: 6px 0; font-size: 10px; text-align: right; color: #7A0C17;">CONTACT</th>
+                </tr>
+                {rows_html}
+              </table>
+            </div>
+          </div>
+          <div class="footer">
+            BloodMatch Transfusion Network • Clinical Telemetry Roster
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+    return _dispatch_smtp(subject, clinician_email, text_body, html_body)
