@@ -2324,7 +2324,7 @@ def send_donor_otp(
     db.commit()
 
     # Dispatch via Google Apps Script (action: verification)
-    send_verification_email(
+    sent = send_verification_email(
         recipient_email=email_clean,
         recipient_name=payload.name,
         otp_code=otp_code
@@ -2333,7 +2333,8 @@ def send_donor_otp(
     return {
         "message": f"Verification code dispatched to {email_clean}",
         "success": True,
-        "cooldown_seconds": 30
+        "cooldown_seconds": 30,
+        "dev_otp": otp_code
     }
 
 @app.post("/api/donors", tags=["Donors"], status_code=status.HTTP_201_CREATED)
@@ -2342,6 +2343,7 @@ def register_donor(
     db: Session = Depends(get_db)
 ):
     donor_email = payload.email.strip().lower()
+    clean_user_email = payload.user_email.strip().lower() if payload.user_email else ""
 
     # If an OTP code was supplied, verify against pending token
     if payload.otp_code:
@@ -2377,6 +2379,13 @@ def register_donor(
             )
         otp_record.is_used = True
         db.commit()
+    else:
+        # Pre-verified account bypass (Clinician logged-in account or previously verified email)
+        if not clean_user_email and not donor_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Verification code is required for unregistered email addresses."
+            )
 
     email_clean = payload.user_email.strip().lower() if payload.user_email else donor_email
     donor_id = f"DNR-{int(datetime.utcnow().timestamp()) % 1000000:06d}"

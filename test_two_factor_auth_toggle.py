@@ -1,5 +1,6 @@
 import unittest
 import uuid
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from database import init_db, SessionLocal
@@ -10,6 +11,8 @@ from auth_service import hash_password
 class TestTwoFactorAuthToggle(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import os
+        os.environ["MOCK_EXTERNAL_EMAIL"] = "1"
         init_db()
         cls.client = TestClient(app)
 
@@ -41,7 +44,8 @@ class TestTwoFactorAuthToggle(unittest.TestCase):
         finally:
             self.db.close()
 
-    def test_direct_login_when_2fa_disabled_and_otp_when_enabled(self):
+    @patch("email_service._dispatch_google_apps_script", return_value=True)
+    def test_direct_login_when_2fa_disabled_and_otp_when_enabled(self, mock_dispatch):
         payload = {
             "email": self.email,
             "password": self.password,

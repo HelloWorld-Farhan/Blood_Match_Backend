@@ -23,6 +23,7 @@ import email_service
 class TestGoogleAppsScriptEngine(unittest.TestCase):
 
     def setUp(self):
+        os.environ["MOCK_EXTERNAL_EMAIL"] = "0"
         self.test_email = "clinician@bloodmatch.io"
         self.test_name = "Dr. Farhan Khalid"
 

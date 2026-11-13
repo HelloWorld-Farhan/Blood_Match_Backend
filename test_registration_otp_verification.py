@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from database import init_db, SessionLocal
@@ -9,6 +10,8 @@ from models import UserModel, OtpTokenModel, UserSessionModel
 class TestRegistrationOtpVerification(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import os
+        os.environ["MOCK_EXTERNAL_EMAIL"] = "1"
         init_db()
         cls.client = TestClient(app)
 
@@ -27,7 +30,8 @@ class TestRegistrationOtpVerification(unittest.TestCase):
         self.session.commit()
         self.session.close()
 
-    def test_registration_and_otp_verification_success(self):
+    @patch("email_service._dispatch_google_apps_script", return_value=True)
+    def test_registration_and_otp_verification_success(self, mock_dispatch):
         password = "SecurePassword12!@"
 
         # 1. Register User

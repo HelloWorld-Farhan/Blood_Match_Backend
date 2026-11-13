@@ -11,6 +11,8 @@ from auth_service import hash_password
 class TestPasswordResetMultiChannel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import os
+        os.environ["MOCK_EXTERNAL_EMAIL"] = "1"
         init_db()
         cls.client = TestClient(app)
 
@@ -86,7 +88,8 @@ class TestPasswordResetMultiChannel(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("cannot be identical to your previous password", resp.json().get("detail", ""))
 
-    def test_05_email_otp_flow_and_rejection_of_previous_password(self):
+    @patch("email_service._dispatch_google_apps_script", return_value=True)
+    def test_05_email_otp_flow_and_rejection_of_previous_password(self, mock_dispatch):
         # 1. Request OTP
         req_resp = self.client.post("/api/auth/password-reset/request", json={
             "email": self.test_email

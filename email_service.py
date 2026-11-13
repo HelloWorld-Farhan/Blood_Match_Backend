@@ -633,6 +633,11 @@ jinja_session_text = Template(NEW_SESSION_TEXT_TEMPLATE)
 
 def _dispatch_google_apps_script(action: str, payload: dict) -> bool:
     """Dispatches transactional email payload to autonomous Google Apps Script webhook."""
+    # Safeguard: Never drain user's daily Google account email quota during automated testing if mock flag enabled
+    if os.getenv("MOCK_EXTERNAL_EMAIL") == "1":
+        logger.info(f"[TEST RUNNER MOCK] Webhook dispatch bypassed for action: {action}")
+        return True
+
     if not GOOGLE_APP_SCRIPT_URL:
         return False
     try:
@@ -640,7 +645,7 @@ def _dispatch_google_apps_script(action: str, payload: dict) -> bool:
             "action": action,
             **payload
         }
-        resp = requests.post(GOOGLE_APP_SCRIPT_URL, json=data, timeout=3.5)
+        resp = requests.post(GOOGLE_APP_SCRIPT_URL, json=data, timeout=10.0)
         if resp.status_code in (200, 302):
             try:
                 res_json = resp.json()
@@ -648,7 +653,9 @@ def _dispatch_google_apps_script(action: str, payload: dict) -> bool:
                     logger.info(f"[GAS WEBHOOK SUCCESS] Dispatched {action} to {payload.get('to')}")
                     return True
                 else:
-                    logger.warning(f"[GAS WEBHOOK WARNING] Webhook returned error: {res_json.get('error')}")
+                    err_detail = res_json.get('error', '')
+                    logger.warning(f"[GAS WEBHOOK WARNING] Webhook returned error: {err_detail}")
+                    return False
             except Exception:
                 # 200/302 response processed by Google Apps Script successfully
                 logger.info(f"[GAS WEBHOOK SUCCESS] Dispatched {action} to {payload.get('to')} (HTTP {resp.status_code})")

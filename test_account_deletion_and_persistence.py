@@ -1,5 +1,6 @@
 import unittest
 import uuid
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from database import init_db, SessionLocal
@@ -10,6 +11,8 @@ from auth_service import hash_password
 class TestAccountDeletionAndPersistence(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import os
+        os.environ["MOCK_EXTERNAL_EMAIL"] = "1"
         init_db()
         cls.client = TestClient(app)
 
@@ -54,7 +57,8 @@ class TestAccountDeletionAndPersistence(unittest.TestCase):
         finally:
             self.db.close()
 
-    def test_account_deletion_flow(self):
+    @patch("email_service._dispatch_google_apps_script", return_value=True)
+    def test_account_deletion_flow(self, mock_dispatch):
         # 1. Login to obtain access token
         login_res = self.client.post("/api/auth/login", json={
             "email": self.email,
