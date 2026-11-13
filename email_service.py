@@ -1194,3 +1194,94 @@ def send_clinician_donor_roster_email(
             logger.warning(f"Could not decode pdf_base64 for SMTP attachment: {b64_err}")
 
     return _dispatch_smtp(subject, clinician_email, text_body, html_body, attachments=attachments if attachments else None)
+
+def send_transfusion_fulfilled_emails(
+    requester_email: Optional[str],
+    requester_name: Optional[str],
+    donor_email: str,
+    donor_name: str,
+    patient_name: str,
+    blood_type: str,
+    units_needed: int = 1,
+    hospital: Optional[str] = "Emergency Trauma Network"
+) -> dict:
+    """
+    Sends concise, professional clinical completion & gratitude emails to:
+    1. The emergency requester / clinician confirming the call was fulfilled.
+    2. The voluntary donor expressing heartfelt clinical thanks for saving a life.
+    """
+    results = {"requester_sent": False, "donor_sent": False}
+    
+    # 1. Email to Requester
+    if requester_email and "@" in requester_email:
+        req_subject = f"Transfusion Demand Fulfilled: {patient_name} ({blood_type})"
+        req_text = f"Dear {requester_name or 'Clinician'},\n\nYour emergency transfusion demand for {patient_name} ({blood_type}, {units_needed} units) at {hospital} has been marked as FULFILLED by voluntary donor {donor_name}.\n\nThe emergency call has been closed on the triage board.\n\nBloodMatch Clinical Operations"
+        req_html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
+  .card {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }}
+  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #DEF7EC; color: #03543F; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
+  h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
+  p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; }}
+  .box {{ background: #F7FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; }}
+  .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
+</style></head>
+<body>
+  <div class="card">
+    <div class="badge">✓ Transfusion Fulfilled</div>
+    <h2>Emergency Request Successfully Closed</h2>
+    <p>Dear {requester_name or 'Attending Clinician'},</p>
+    <p>Your emergency transfusion call has been successfully fulfilled and logged into the clinical ledger.</p>
+    <div class="box">
+      <strong>Patient:</strong> {patient_name} ({blood_type}, {units_needed} Pints)<br>
+      <strong>Facility:</strong> {hospital}<br>
+      <strong>Fulfilled By:</strong> {donor_name} ({donor_email})
+    </div>
+    <p>Thank you for using the BloodMatch Emergency Mobilization Network.</p>
+    <div class="footer">BloodMatch Clinical Operations • Case Logged & Fulfilled</div>
+  </div>
+</body>
+</html>"""
+        try:
+            results["requester_sent"] = _dispatch_smtp(req_subject, requester_email, req_text, req_html)
+        except Exception as exc:
+            logger.warning(f"Could not send fulfillment email to requester: {exc}")
+
+    # 2. Email to Fulfilling Donor
+    if donor_email and "@" in donor_email:
+        donor_subject = f"Thank You for Saving a Life: Blood Transfusion Completed"
+        donor_text = f"Dear {donor_name},\n\nThank you! Your voluntary blood donation has fulfilled the emergency transfusion demand for {patient_name} ({blood_type}).\n\nYour generosity and immediate readiness made an immediate life-saving difference.\n\nWith deepest gratitude,\nBloodMatch Clinical Operations"
+        donor_html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
+  .card {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }}
+  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #FDE8E8; color: #9B1C1C; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
+  h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
+  p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; }}
+  .box {{ background: #FDF2F2; border: 1px solid #FBD5D5; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; color: #771D1D; }}
+  .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
+</style></head>
+<body>
+  <div class="card">
+    <div class="badge">♥ Life-Saving Donor</div>
+    <h2>Thank You for Your Blood Donation</h2>
+    <p>Dear {donor_name},</p>
+    <p>We are writing to express our sincere clinical gratitude. Your voluntary donation has successfully fulfilled the urgent transfusion demand for patient <strong>{patient_name}</strong> ({blood_type}).</p>
+    <div class="box">
+      <strong>Transfusion Record:</strong> {patient_name} • Group {blood_type}<br>
+      <strong>Hospital:</strong> {hospital}<br>
+      <strong>Status:</strong> Successfully Transfused & Completed
+    </div>
+    <p>Your selfless contribution and swift mobilization truly helped save a life today.</p>
+    <div class="footer">BloodMatch Voluntary Donor Network • Clinical Gratitude Node</div>
+  </div>
+</body>
+</html>"""
+        try:
+            results["donor_sent"] = _dispatch_smtp(donor_subject, donor_email, donor_text, donor_html)
+        except Exception as exc:
+            logger.warning(f"Could not send thanks email to donor: {exc}")
+
+    return results

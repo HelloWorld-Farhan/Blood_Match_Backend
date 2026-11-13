@@ -51,6 +51,7 @@ from schemas import (
     DonorSendOtpRequest,
     DonorCreateRequest,
     EmergencyCreateRequest,
+    EmergencyFulfillRequest,
     ClinicianProfileRequest,
     ProfileUpdateRequest,
     EmergencyDispatchDonorRequest,
@@ -90,7 +91,8 @@ from email_service import (
     send_account_deletion_otp_email,
     send_account_deleted_confirmation_email,
     send_emergency_donor_dispatch_email,
-    send_clinician_donor_roster_email
+    send_clinician_donor_roster_email,
+    send_transfusion_fulfilled_emails
 )
 from storage_service import (
     process_avatar_image,
@@ -2524,7 +2526,11 @@ def list_emergency_requests(
 ):
     query = db.query(EmergencyRequestModel)
     if user_email:
-        query = query.filter(EmergencyRequestModel.user_email == user_email.strip().lower())
+        email_clean = user_email.strip().lower()
+        count = query.filter((EmergencyRequestModel.user_email == email_clean) | (EmergencyRequestModel.user_email.is_(None))).count()
+        if count == 0:
+            reconcile_user_from_r2(email_clean, db)
+        query = query.filter((EmergencyRequestModel.user_email == email_clean) | (EmergencyRequestModel.user_email.is_(None)))
     requests = query.order_by(EmergencyRequestModel.created_at.desc()).all()
     return [r.to_dict() for r in requests]
 
@@ -2534,13 +2540,39 @@ def create_emergency_request(
     db: Session = Depends(get_db)
 ):
     email_clean = payload.user_email.strip().lower() if payload.user_email else None
+    
+    # If client passed an ID (e.g. REQ-xxxxxx), check if it already exists
+    if payload.id:
+        existing = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == payload.id).first()
+        if existing:
+            existing.patient_name = payload.patient_name
+            existing.patient_age = payload.patient_age or existing.patient_age
+            existing.hospital = payload.hospital or existing.hospital
+            existing.hospital_city = payload.hospital_city or existing.hospital_city
+            existing.ward = payload.ward or existing.ward
+            existing.blood_type = payload.blood_type.upper()
+            existing.units_needed = payload.units_needed
+            existing.urgency = payload.urgency or existing.urgency
+            existing.status = payload.status or existing.status
+            existing.contact_person = payload.contact_person
+            existing.contact_phone = payload.contact_phone
+            db.commit()
+            if email_clean:
+                sync_user_state_to_r2(email_clean, db)
+            return existing.to_dict()
+
     req = EmergencyRequestModel(
+        id=payload.id if payload.id else generate_uuid(),
         user_email=email_clean,
         patient_name=payload.patient_name,
-        hospital=payload.hospital,
+        patient_age=payload.patient_age or 35,
+        hospital=payload.hospital or "Emergency Trauma Network",
+        hospital_city=payload.hospital_city,
+        ward=payload.ward or "Emergency Triage",
         blood_type=payload.blood_type.upper(),
         units_needed=payload.units_needed,
-        status=payload.status,
+        urgency=payload.urgency or "CRITICAL",
+        status=payload.status or "urgent",
         contact_person=payload.contact_person,
         contact_phone=payload.contact_phone
     )
@@ -2551,6 +2583,47 @@ def create_emergency_request(
         sync_user_state_to_r2(email_clean, db)
 
     return req.to_dict()
+
+@app.post("/api/emergency/{request_id}/fulfill", tags=["Emergency"])
+def fulfill_emergency_request(
+    request_id: str,
+    payload: EmergencyFulfillRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    req = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency request not found.")
+
+    req.status = "fulfilled"
+    req.fulfilled_at = datetime.utcnow()
+    req.matched_donor_id = payload.donor_id or req.matched_donor_id
+    req.fulfilled_by_donor_name = payload.donor_name
+    req.fulfilled_by_donor_email = payload.donor_email.strip().lower()
+    db.commit()
+
+    target_email = req.user_email or (payload.requester_email.strip().lower() if payload.requester_email else None)
+    if target_email:
+        sync_user_state_to_r2(target_email, db)
+
+    # Dispatch thank you and fulfillment completion emails in background
+    background_tasks.add_task(
+        send_transfusion_fulfilled_emails,
+        requester_email=payload.requester_email or req.user_email,
+        requester_name=payload.requester_name or req.contact_person,
+        donor_email=payload.donor_email,
+        donor_name=payload.donor_name,
+        patient_name=req.patient_name,
+        blood_type=req.blood_type,
+        units_needed=req.units_needed,
+        hospital=req.hospital
+    )
+
+    return {
+        "ok": True,
+        "message": f"Transfusion for {req.patient_name} marked as FULFILLED. Confirmation emails dispatched.",
+        "request": req.to_dict()
+    }
 
 @app.delete("/api/emergency/{request_id}", tags=["Emergency"])
 def delete_emergency_request(

@@ -221,12 +221,20 @@ class EmergencyRequestModel(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_email = Column(String(120), nullable=True, index=True)
     patient_name = Column(String(100), nullable=False)
+    patient_age = Column(Integer, nullable=True, default=35)
     hospital = Column(String(120), nullable=False)
+    hospital_city = Column(String(120), nullable=True)
+    ward = Column(String(100), nullable=True)
     blood_type = Column(String(10), nullable=False, index=True)
     units_needed = Column(Integer, nullable=False, default=1)
+    urgency = Column(String(20), nullable=True, default="CRITICAL")
     status = Column(String(20), nullable=False, default="urgent", index=True)
     contact_person = Column(String(100), nullable=False)
     contact_phone = Column(String(30), nullable=False)
+    matched_donor_id = Column(String(36), nullable=True)
+    fulfilled_at = Column(DateTime, nullable=True)
+    fulfilled_by_donor_name = Column(String(100), nullable=True)
+    fulfilled_by_donor_email = Column(String(120), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -234,12 +242,20 @@ class EmergencyRequestModel(Base):
             "id": self.id,
             "user_email": self.user_email,
             "patient_name": self.patient_name,
+            "patient_age": self.patient_age,
             "hospital": self.hospital,
+            "hospital_city": self.hospital_city,
+            "ward": self.ward,
             "blood_type": self.blood_type,
             "units_needed": self.units_needed,
+            "urgency": self.urgency or "CRITICAL",
             "status": self.status,
             "contact_person": self.contact_person,
             "contact_phone": self.contact_phone,
+            "matched_donor_id": self.matched_donor_id,
+            "fulfilled_at": self.fulfilled_at.isoformat() if self.fulfilled_at else None,
+            "fulfilled_by_donor_name": self.fulfilled_by_donor_name,
+            "fulfilled_by_donor_email": self.fulfilled_by_donor_email,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 

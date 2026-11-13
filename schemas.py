@@ -26,14 +26,27 @@ class DonorCreateRequest(BaseModel):
     otp_code: Optional[str] = None
 
 class EmergencyCreateRequest(BaseModel):
+    id: Optional[str] = None
     user_email: Optional[str] = None
     patient_name: str = Field(..., min_length=2)
+    patient_age: Optional[int] = 35
     hospital: Optional[str] = "Emergency Trauma Network"
+    hospital_city: Optional[str] = None
+    ward: Optional[str] = "Emergency Triage"
     blood_type: str = Field(..., min_length=1, max_length=5)
     units_needed: int = Field(1, ge=1)
+    urgency: Optional[str] = "CRITICAL"
     status: str = "urgent"
     contact_person: str = Field(..., min_length=2)
     contact_phone: str = Field(..., min_length=5)
+
+class EmergencyFulfillRequest(BaseModel):
+    requester_email: Optional[str] = None
+    requester_name: Optional[str] = None
+    donor_id: Optional[str] = None
+    donor_name: str = Field(..., min_length=2)
+    donor_email: str = Field(..., min_length=5)
+    notes: Optional[str] = None
 
 class ClinicianProfileRequest(BaseModel):
     full_name: str = Field(..., min_length=2)
