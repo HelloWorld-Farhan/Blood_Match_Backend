@@ -993,30 +993,37 @@ def send_emergency_donor_dispatch_email(
     patient_name: str,
     hospital: str,
     hospital_city: str,
-    contact_number: str,
-    distance_km: float,
-    custom_message: Optional[str] = None
+    contact_number: Optional[str] = None,
+    distance_km: float = 0.0,
+    custom_message: Optional[str] = None,
+    requester_name: Optional[str] = None,
+    requester_email: Optional[str] = None,
+    requester_phone: Optional[str] = None
 ) -> bool:
     """Dispatches high-urgency mobilization call to a compatible voluntary donor."""
+    effective_phone = contact_number or requester_phone or "Attending Hospital Dispatch"
+    effective_requester = requester_name or "Emergency Transfusion Coordinator"
     subject = f"🚨 URGENT: Blood Donation Needed ({blood_type}) - Emergency Dispatch"
-    
-    gas_payload = {
-        "to": donor_email,
-        "name": donor_name,
-        "blood_type": blood_type,
-        "patient_name": patient_name,
-        "hospital": hospital,
-        "hospital_city": hospital_city,
-        "contact_number": contact_number,
-        "distance_km": distance_km,
-        "custom_message": custom_message or "",
-        "action": "emergency_donor_dispatch"
-    }
-    if _dispatch_google_apps_script("emergency_donor_dispatch", gas_payload):
-        return True
 
-    text_body = f"URGENT CLINICAL MOBILIZATION NOTICE\n\nHello {donor_name},\n\nAn emergency transfusion request requires your compatible {blood_type} blood.\n\nPatient: {patient_name}\nFacility: {hospital}, {hospital_city}\nDistance from your locality: ~{distance_km:.1f} km\nEmergency Contact: {contact_number}\n\nClinical Note: {custom_message or 'Immediate donor dispatch requested.'}\n\nPlease call the emergency contact number immediately if you can donate."
-    
+    text_body = f"""URGENT CLINICAL MOBILIZATION NOTICE
+
+Hello {donor_name},
+
+An urgent transfusion request requires your compatible Group {blood_type} blood.
+You were identified as an enrolled voluntary donor in close proximity.
+
+Requester / Contact: {effective_requester}
+Emergency Hotline / Phone: {effective_phone}
+{f"Verified Requester Email: {requester_email}" if requester_email else ""}
+Patient / Case: {patient_name}
+Facility: {hospital}, {hospital_city}
+Proximity Distance: ~{distance_km:.1f} km
+Clinical Message: {custom_message or 'Immediate voluntary blood donation requested.'}
+
+Please call the emergency hotline ({effective_phone}) immediately if you are able to donate.
+BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
+"""
+
     html_body = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -1045,15 +1052,23 @@ def send_emergency_donor_dispatch_email(
           <div class="content">
             <h1 class="title">Emergency Blood Dispatch</h1>
             <div class="greeting">Hello, {donor_name}</div>
-            <p class="paragraph">A critical trauma transfusion requires your compatible <strong>Group {blood_type}</strong> blood. You were identified as an enrolled voluntary donor in close proximity to the attending medical facility.</p>
+            <p class="paragraph">A critical transfusion requires your compatible <strong>Group {blood_type}</strong> blood. You were identified as an enrolled voluntary donor in close proximity to the attending medical facility.</p>
             <div class="audit-card">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Requester / Contact</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{effective_requester}</td>
+                </tr>
+                {f'''<tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Verified Sender Email</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{requester_email}</td>
+                </tr>''' if requester_email else ''}
                 <tr>
                   <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Patient / Case</td>
                   <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{patient_name}</td>
                 </tr>
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Attending Hospital</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Facility / Location</td>
                   <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{hospital}, {hospital_city}</td>
                 </tr>
                 <tr>
@@ -1062,16 +1077,16 @@ def send_emergency_donor_dispatch_email(
                 </tr>
                 <tr>
                   <td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500;">Emergency Hotline</td>
-                  <td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;"><a href="tel:{contact_number}" style="color: #D72638; text-decoration: none;">{contact_number}</a></td>
+                  <td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;"><a href="tel:{effective_phone}" style="color: #D72638; text-decoration: none; font-weight: 800;">{effective_phone}</a></td>
                 </tr>
               </table>
             </div>
             <div class="notice-box">
-              <strong>Clinical Message:</strong> {custom_message or 'Please contact the attending hospital number immediately if you are available for donation.'}
+              <strong>Clinical Urgency Message:</strong> {custom_message or 'Please contact the emergency hotline number immediately if you are available for donation.'}
             </div>
           </div>
           <div class="footer">
-            BloodMatch Emergency Transfusion Network • Rapid Mobilization Node
+            BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
             <div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Dispatch Ref: #{donor_email[:4]}-{int(distance_km*10)}</div>
           </div>
         </div>
@@ -1079,6 +1094,24 @@ def send_emergency_donor_dispatch_email(
     </body>
     </html>
     """
+
+    gas_payload = {
+        "to": donor_email,
+        "name": donor_name,
+        "blood_type": blood_type,
+        "patient_name": patient_name,
+        "hospital": hospital,
+        "hospital_city": hospital_city,
+        "contact_number": effective_phone,
+        "distance_km": distance_km,
+        "custom_message": custom_message or "",
+        "action": "emergency_donor_dispatch",
+        "html_body": html_body,
+        "subject": subject
+    }
+    if _dispatch_google_apps_script("emergency_donor_dispatch", gas_payload):
+        return True
+
     return _dispatch_smtp(subject, donor_email, text_body, html_body)
 
 def send_clinician_donor_roster_email(

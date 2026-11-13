@@ -2656,17 +2656,21 @@ def dispatch_emergency_donor_alert(
     """
     Dispatches real-time emergency mobilization email directly to a compatible voluntary donor.
     """
+    effective_phone = payload.contact_number or payload.requester_phone or "Attending Clinical Dispatch"
     background_tasks.add_task(
         send_emergency_donor_dispatch_email,
         donor_email=payload.donor_email,
         donor_name=payload.donor_name,
         blood_type=payload.blood_type,
-        patient_name=payload.patient_name,
-        hospital=payload.hospital,
-        hospital_city=payload.hospital_city,
-        contact_number=payload.contact_number,
+        patient_name=payload.patient_name or "Emergency Transfusion Case",
+        hospital=payload.hospital or "Regional Emergency Center",
+        hospital_city=payload.hospital_city or "Delhi",
+        contact_number=effective_phone,
         distance_km=payload.distance_km,
-        custom_message=payload.custom_message
+        custom_message=payload.custom_message,
+        requester_name=payload.requester_name,
+        requester_email=payload.requester_email,
+        requester_phone=payload.requester_phone or effective_phone
     )
 
     return {
