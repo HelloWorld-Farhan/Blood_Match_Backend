@@ -1,4 +1,5 @@
 import uuid
+import json
 from datetime import datetime
 from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime
 from database import Base
@@ -33,6 +34,60 @@ class UserModel(Base):
     # Cloudflare R2 Universal Avatar Profile Picture
     photo_url = Column(String(1024), nullable=True)
 
+    # Saved phone numbers & verified emails (JSON serialized lists for cross-device sync)
+    saved_phones = Column(String(1024), nullable=True, default="[]")
+    verified_emails = Column(String(2048), nullable=True, default="[]")
+
+    def get_saved_phones(self) -> list:
+        phones = []
+        if self.phone and self.phone.strip():
+            phones.append(self.phone.strip())
+        if self.saved_phones:
+            try:
+                parsed = json.loads(self.saved_phones)
+                if isinstance(parsed, list):
+                    for p in parsed:
+                        if p and isinstance(p, str) and p.strip() and p.strip() not in phones:
+                            phones.append(p.strip())
+            except Exception:
+                for p in self.saved_phones.split(","):
+                    if p.strip() and p.strip() not in phones:
+                        phones.append(p.strip())
+        return phones
+
+    def add_saved_phone(self, new_phone: str) -> list:
+        current = self.get_saved_phones()
+        clean = (new_phone or "").strip()
+        if clean and clean not in current:
+            current.append(clean)
+        self.saved_phones = json.dumps(current)
+        return current
+
+    def get_verified_emails(self) -> list:
+        emails = []
+        if self.email and self.email.strip():
+            emails.append(self.email.strip().lower())
+        if self.verified_emails:
+            try:
+                parsed = json.loads(self.verified_emails)
+                if isinstance(parsed, list):
+                    for e in parsed:
+                        if e and isinstance(e, str) and e.strip() and e.strip().lower() not in emails:
+                            emails.append(e.strip().lower())
+            except Exception:
+                for e in self.verified_emails.split(","):
+                    if e.strip() and e.strip().lower() not in emails:
+                        emails.append(e.strip().lower())
+        return emails
+
+    def add_verified_email(self, new_email: str) -> list:
+        current = self.get_verified_emails()
+        clean = (new_email or "").strip().lower()
+        if clean and clean not in current:
+            current.append(clean)
+        self.verified_emails = json.dumps(current)
+        return current
+
     @property
     def member_id(self) -> str:
         clean = (self.id or "9481NX01").replace("-", "").upper()
@@ -49,6 +104,8 @@ class UserModel(Base):
             "full_name": self.full_name,
             "email": self.email,
             "phone": self.phone,
+            "saved_phones": self.get_saved_phones(),
+            "verified_emails": self.get_verified_emails(),
             "is_verified": self.is_verified,
             "is_2fa_enabled": self.is_2fa_enabled,
             "photo_url": self.photo_url,

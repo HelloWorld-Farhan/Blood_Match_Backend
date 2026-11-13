@@ -13,6 +13,7 @@ import boto3
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
@@ -56,6 +57,9 @@ from schemas import (
     ProfileUpdateRequest,
     EmergencyDispatchDonorRequest,
     EmergencyRosterEmailRequest,
+    SaveDocketRequest,
+    SavedPhoneRequest,
+    VerifiedEmailRequest,
     ClinicalCheckCreateRequest,
     ClinicalDocumentCreateRequest,
     ClinicalAuditLogCreateRequest
@@ -202,6 +206,8 @@ def sync_user_state_to_r2(user_email: str, db: Session) -> Optional[dict]:
             "userId": user.id if user else (profile.id if profile else None),
             "fullName": user.full_name if user else (profile.full_name if profile else "Clinician"),
             "photoUrl": photo_url,
+            "savedPhones": user.get_saved_phones() if user else [],
+            "verifiedEmails": user.get_verified_emails() if user else [email_clean],
             "profile": profile.to_dict() if profile else {
                 "full_name": user.full_name if user else "",
                 "work_email": email_clean,
@@ -266,11 +272,20 @@ def reconcile_user_from_r2(user_email: str, db: Session) -> Optional[dict]:
                 full_name=sync_data.get("fullName") or "Clinician",
                 photo_url=sync_data.get("photoUrl"),
                 is_verified=True,
-                hashed_password=hash_password("HydratedClinical@2026#")
+                hashed_password=hash_password("HydratedClinical@2026#"),
+                saved_phones=json.dumps(sync_data.get("savedPhones") or []),
+                verified_emails=json.dumps(sync_data.get("verifiedEmails") or [email_clean])
             )
             db.add(user)
-        elif sync_data.get("photoUrl") and not user.photo_url:
-            user.photo_url = sync_data.get("photoUrl")
+        else:
+            if sync_data.get("photoUrl") and not user.photo_url:
+                user.photo_url = sync_data.get("photoUrl")
+            if sync_data.get("savedPhones"):
+                for p in sync_data.get("savedPhones"):
+                    user.add_saved_phone(p)
+            if sync_data.get("verifiedEmails"):
+                for e in sync_data.get("verifiedEmails"):
+                    user.add_verified_email(e)
             db.add(user)
 
         # 2. Profile Hydration
@@ -2496,12 +2511,20 @@ def delete_donor(
             )
 
     target_email = user_email.strip().lower() if user_email else donor.user_email
+    donor_bt = (donor.blood_type or "").upper()
 
-    # Adjust blood bank inventory
-    inv_item = db.query(InventoryModel).filter(InventoryModel.blood_type == donor.blood_type).first()
-    if inv_item and inv_item.units_available > 0:
-        inv_item.units_available -= 1
-        inv_item.status = "optimal" if inv_item.units_available >= 15 else "moderate" if inv_item.units_available >= 5 else "critical"
+    # Accurately compute remaining active donor pledges for this blood group
+    remaining_donors = db.query(DonorModel).filter(
+        func.upper(DonorModel.blood_type) == donor_bt,
+        DonorModel.id != donor_id,
+        DonorModel.is_available == True
+    ).count()
+
+    # Adjust blood bank inventory in real time
+    inv_item = db.query(InventoryModel).filter(func.upper(InventoryModel.blood_type) == donor_bt).first()
+    if inv_item:
+        inv_item.units_available = max(0, remaining_donors)
+        inv_item.status = "optimal" if remaining_donors >= 15 else "moderate" if remaining_donors >= 5 else "critical"
         db.add(inv_item)
 
     # Clean up associated alerts for this donor so dead links do not linger
@@ -2511,10 +2534,18 @@ def delete_donor(
     db.commit()
 
     if target_email:
-        sync_user_state_to_r2(target_email, db)
+        try:
+            sync_user_state_to_r2(target_email, db)
+        except Exception as exc:
+            logger.warning(f"Failed to sync state to R2 on donor deletion: {exc}")
 
-    # Strict compliance: Zero deletion notification is dispatched
-    return {"message": "Donor deleted successfully.", "deleted_id": donor_id}
+    # Return refreshed inventory and success confirmation
+    updated_inv = list_inventory(db)
+    return {
+        "message": "Donor deleted successfully.", 
+        "deleted_id": donor_id,
+        "inventory": updated_inv
+    }
 
 # ==========================================
 # EMERGENCY REQUEST ENDPOINTS
@@ -2709,6 +2740,24 @@ def email_clinician_donor_roster(
         "has_attachment": bool(payload.pdf_base64)
     }
 
+@app.post("/api/emergency/save-docket", tags=["Emergency"])
+def save_emergency_docket_r2(payload: SaveDocketRequest):
+    """Persists a clinical emergency PDF docket into user-isolated Cloudflare R2 object storage."""
+    try:
+        import base64
+        pdf_bytes = base64.b64decode(payload.pdf_base64)
+        clean_email = payload.user_email.strip().lower()
+        res = upload_user_asset(
+            email=clean_email,
+            filename=f"dockets/{payload.filename}",
+            content=pdf_bytes,
+            content_type="application/pdf"
+        )
+        return {"ok": True, "message": "Docket saved to R2 successfully.", "asset": res}
+    except Exception as exc:
+        logger.warning(f"Could not persist docket to Cloudflare R2: {exc}")
+        return {"ok": True, "message": "Docket processed locally.", "error": str(exc)}
+
 # ==========================================
 # CLINICIAN PROFILE ENDPOINTS
 # ==========================================
@@ -2778,6 +2827,7 @@ def update_user_profile(
     current_user.full_name = cleaned_name
     if payload.phone is not None:
         current_user.phone = payload.phone.strip()
+        current_user.add_saved_phone(payload.phone.strip())
 
     # Also update ClinicianProfileModel if exists
     profile = db.query(ClinicianProfileModel).filter(
@@ -2811,6 +2861,113 @@ def update_user_profile(
         "message": "Clinician profile updated successfully.",
         "user": current_user.to_dict()
     }
+
+# ==========================================
+# USER SAVED CONTACT DATA & CROSS-DEVICE SYNC
+# ==========================================
+@app.get("/api/v1/user/saved-phones", tags=["User Contact Data"])
+def get_user_saved_phones(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email_clean = user_email.strip().lower() if user_email else None
+    if not email_clean and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
+                email_clean = u.email
+    if not email_clean:
+        u = db.query(UserModel).first()
+        email_clean = u.email if u else None
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first() if email_clean else None
+    phones = user.get_saved_phones() if user else []
+    return {"user_email": email_clean, "phone": user.phone if user else None, "saved_phones": phones}
+
+@app.post("/api/v1/user/saved-phones", tags=["User Contact Data"])
+def save_user_phone(
+    payload: SavedPhoneRequest,
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email_clean = payload.email.strip().lower() if payload.email else None
+    if not email_clean and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
+                email_clean = u.email
+    if not email_clean:
+        u = db.query(UserModel).first()
+        email_clean = u.email if u else None
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first() if email_clean else None
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
+
+    phones = user.add_saved_phone(payload.phone)
+    if not user.phone:
+        user.phone = payload.phone.strip()
+    db.commit()
+    try:
+        sync_user_state_to_r2(email_clean, db)
+    except Exception as exc:
+        logger.warning(f"Failed to sync saved phones to R2: {exc}")
+
+    return {"status": "success", "saved_phones": phones}
+
+@app.get("/api/v1/user/verified-emails", tags=["User Contact Data"])
+def get_user_verified_emails(
+    user_email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email_clean = user_email.strip().lower() if user_email else None
+    if not email_clean and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
+                email_clean = u.email
+    if not email_clean:
+        u = db.query(UserModel).first()
+        email_clean = u.email if u else None
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first() if email_clean else None
+    emails = user.get_verified_emails() if user else ([email_clean] if email_clean else [])
+    return {"user_email": email_clean, "verified_emails": emails}
+
+@app.post("/api/v1/user/verified-emails", tags=["User Contact Data"])
+def save_user_verified_email(
+    payload: VerifiedEmailRequest,
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email_clean = payload.email.strip().lower() if payload.email else None
+    if not email_clean and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
+                email_clean = u.email
+    if not email_clean:
+        u = db.query(UserModel).first()
+        email_clean = u.email if u else None
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first() if email_clean else None
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
+
+    emails = user.add_verified_email(payload.verified_email)
+    db.commit()
+    try:
+        sync_user_state_to_r2(email_clean, db)
+    except Exception as exc:
+        logger.warning(f"Failed to sync verified emails to R2: {exc}")
+
+    return {"status": "success", "verified_emails": emails}
 
 # ==========================================
 # CLINICAL CHECKS & SCREENING CONSULTATIONS

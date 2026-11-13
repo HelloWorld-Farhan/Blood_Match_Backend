@@ -172,3 +172,17 @@ class EmergencyRosterEmailRequest(BaseModel):
     pdf_base64: Optional[str] = None
     pdf_filename: Optional[str] = None
     dispatch_id: Optional[str] = None
+
+class SaveDocketRequest(BaseModel):
+    user_email: str = Field(..., min_length=5, max_length=150)
+    filename: str = Field(..., min_length=3, max_length=200)
+    pdf_base64: str = Field(..., min_length=10)
+
+class SavedPhoneRequest(BaseModel):
+    email: Optional[str] = None
+    phone: str = Field(..., min_length=4, max_length=50)
+
+class VerifiedEmailRequest(BaseModel):
+    email: Optional[str] = None
+    verified_email: str = Field(..., min_length=5, max_length=120)
+
