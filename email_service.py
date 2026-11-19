@@ -974,16 +974,45 @@ def send_account_deleted_confirmation_email(recipient_email: str, recipient_name
     if _dispatch_google_apps_script("account_deleted", gas_payload):
         return True
 
-    text_body = f"Hello {recipient_name},\n\nThis confirms that your BloodMatch account, donor profile, emergency records, and cloud storage files have been completely and permanently deleted as requested.\n\nThank you for using BloodMatch."
+    text_body = f"""Hello {recipient_name},
+
+This official confirmation verifies that your BloodMatch clinician account, login credentials, voluntary blood donor registry records, active sessions across all devices, and Cloudflare R2 storage files have been permanently and completely deleted from our clinical servers.
+
+Deleted Data Summary:
+• Clinician Credentials & Password Records: Expunged
+• Voluntary Blood Donor Registry & Transfusion History: Expunged
+• Active Workstation & Mobile Device Sessions: Revoked & Terminated
+• Cloudflare R2 Avatars & Document Storage: Completely Purged
+
+All active sessions have been terminated. Thank you for your service with BloodMatch Clinical Network."""
+
     html_body = f"""
-    <div style="font-family: sans-serif; max-width: 500px; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc;">
-        <h2 style="color: #0f172a; margin-top: 0;">Account Successfully Deleted</h2>
-        <p>Hello <strong>{recipient_name}</strong>,</p>
-        <p>This email confirms that your BloodMatch account, voluntary donor registry entries, and all associated cloud storage data have been permanently purged from our servers.</p>
-        <p style="font-size: 13px; color: #64748b; margin-top: 24px;">If you wish to use BloodMatch in the future, you may register a brand-new profile at any time.</p>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; padding: 28px; border: 1px solid #fee2e2; border-radius: 16px; background: #ffffff;">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="display: inline-block; padding: 10px 16px; border-radius: 9999px; background: #fef2f2; color: #dc2626; font-size: 12px; font-weight: 700; border: 1px solid #fecaca;">
+                Account Purge Confirmation
+            </div>
+        </div>
+        <h2 style="color: #0f172a; margin-top: 0; text-align: center; font-size: 22px; font-weight: 800;">Account Permanently Deleted</h2>
+        <p style="color: #334155; font-size: 14px; line-height: 1.6;">Hello <strong>{recipient_name}</strong>,</p>
+        <p style="color: #475569; font-size: 13px; line-height: 1.6;">
+            As requested, your BloodMatch account and all associated operational records have been permanently erased from our clinical database and disaster-proof storage.
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0;">
+            <h4 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Purged Clinical Assets:</h4>
+            <ul style="margin: 0; padding-left: 20px; color: #334155; font-size: 13px; line-height: 1.8;">
+                <li><strong>Clinician Credentials:</strong> Login passwords, phone linkage, and tokens permanently removed.</li>
+                <li><strong>Donor Registry:</strong> Blood donation profile and records in the donation suite completely wiped.</li>
+                <li><strong>Cross-Device Sessions:</strong> Terminated and logged out automatically from all terminals.</li>
+                <li><strong>Cloud Storage:</strong> Avatars, photos, and sync documents expunged from Cloudflare R2.</li>
+            </ul>
+        </div>
+        <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+            If you ever need emergency blood matching in the future, you may register a new account at any time.
+        </p>
     </div>
     """
-    return _dispatch_smtp("Your BloodMatch Account Has Been Successfully Deleted", recipient_email, text_body, html_body)
+    return _dispatch_smtp("Your BloodMatch Account Has Been Permanently Deleted", recipient_email, text_body, html_body)
 
 def send_emergency_donor_dispatch_email(
     donor_email: str,

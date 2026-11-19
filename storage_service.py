@@ -440,25 +440,31 @@ def restore_all_users_from_r2(db) -> int:
 def delete_all_user_r2_data(authenticated_email: str) -> int:
     """
     Permanently deletes all assets, folders, and records under users/{email}/
-    when an account is formally deleted.
+    (and any associated donor or auxiliary files) when an account is formally deleted.
+    Uses paginator to guarantee complete multi-page deletion in batches of 1000.
     """
     email_clean = sanitize_user_email(authenticated_email)
-    prefix = f"users/{email_clean}/"
+    prefixes = [f"users/{email_clean}/", f"donors/{email_clean}/", f"avatars/{email_clean}/"]
     r2 = get_r2_client()
     if not r2:
         return 0
-    deleted_count = 0
+    total_deleted = 0
     try:
-        response = r2.list_objects_v2(Bucket=R2_BUCKET_NAME, Prefix=prefix)
-        objects_to_delete = [{"Key": obj["Key"]} for obj in response.get("Contents", [])]
-        if objects_to_delete:
-            r2.delete_objects(
-                Bucket=R2_BUCKET_NAME,
-                Delete={"Objects": objects_to_delete}
-            )
-            deleted_count = len(objects_to_delete)
-            logger.info(f"[R2 ACCOUNT PURGE] Completely deleted {deleted_count} files for {email_clean}")
+        paginator = r2.get_paginator("list_objects_v2")
+        for prefix in prefixes:
+            for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=prefix):
+                objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+                if objects:
+                    # Delete in batches of 1000
+                    for i in range(0, len(objects), 1000):
+                        batch = objects[i:i + 1000]
+                        r2.delete_objects(
+                            Bucket=R2_BUCKET_NAME,
+                            Delete={"Objects": batch}
+                        )
+                        total_deleted += len(batch)
+        logger.info(f"[R2 ACCOUNT PURGE] Completely deleted {total_deleted} files for {email_clean}")
     except Exception as exc:
         logger.error(f"[R2 ACCOUNT PURGE ERROR] Failed to purge R2 files for {email_clean}: {exc}")
-    return deleted_count
+    return total_deleted
 

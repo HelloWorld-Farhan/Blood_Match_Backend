@@ -1887,10 +1887,10 @@ def confirm_account_deletion(
     Step 2: Validates confirmation string ('DELETE') and 6-digit OTP code.
     Permanently wipes user account, donor registrations, clinical logs, and Cloudflare R2 files.
     """
-    if payload.confirm_text.strip() != "DELETE":
+    if payload.confirm_text.strip().upper() != "DELETE":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Confirmation failed: You must type DELETE in uppercase to authorize account deletion."
+            detail="Confirmation failed: You must type DELETE to authorize account deletion."
         )
 
     # Verify OTP
@@ -1930,17 +1930,25 @@ def confirm_account_deletion(
     user_email = current_user.email
     user_name = current_user.full_name
     user_id = current_user.id
+    user_phone = current_user.phone
 
-    # 1. Permanently wipe all database records
-    # Donors registered by this user or matching email
-    db.query(DonorModel).filter(
-        (DonorModel.email == user_email) | (DonorModel.user_email == user_email)
-    ).delete(synchronize_session=False)
+    # 1. Permanently wipe all database records across clinical tables
+    # Donors registered by this user, matching email, or matching phone
+    donor_filter = (DonorModel.email == user_email) | (DonorModel.user_email == user_email)
+    if user_phone and user_phone.strip():
+        clean_phone = user_phone.strip()
+        raw_digits = "".join(filter(str.isdigit, clean_phone))
+        donor_filter = donor_filter | (DonorModel.phone == clean_phone)
+        if raw_digits:
+            donor_filter = donor_filter | (DonorModel.phone.like(f"%{raw_digits}%"))
+
+    db.query(DonorModel).filter(donor_filter).delete(synchronize_session=False)
 
     # Emergency requests
-    db.query(EmergencyRequestModel).filter(
-        EmergencyRequestModel.user_email == user_email
-    ).delete(synchronize_session=False)
+    emergency_filter = (EmergencyRequestModel.user_email == user_email)
+    if user_phone and user_phone.strip():
+        emergency_filter = emergency_filter | (EmergencyRequestModel.contact_phone == user_phone.strip())
+    db.query(EmergencyRequestModel).filter(emergency_filter).delete(synchronize_session=False)
 
     # Clinical checks & audit logs
     db.query(ClinicalCheckModel).filter(
@@ -1961,7 +1969,7 @@ def confirm_account_deletion(
         PasswordHistoryModel.user_id == user_id
     ).delete(synchronize_session=False)
 
-    # Trusted devices & sessions
+    # Trusted devices & sessions (Forces immediate termination across all devices)
     db.query(TrustedDeviceModel).filter(
         TrustedDeviceModel.user_id == user_id
     ).delete(synchronize_session=False)
@@ -1975,20 +1983,28 @@ def confirm_account_deletion(
         OtpTokenModel.email == user_email
     ).delete(synchronize_session=False)
 
-    # Finally, delete user account
+    # Finally, delete user account credentials
     db.query(UserModel).filter(
         UserModel.id == user_id
     ).delete(synchronize_session=False)
 
     db.commit()
 
-    # 2. Permanently purge all Cloudflare R2 files
+    # Force sync persistent database snapshot to Cloudflare R2
+    try:
+        from r2_db_sync import sync_db_to_r2
+        from database import sqlite_path
+        sync_db_to_r2(sqlite_path, force=True)
+    except Exception as sync_err:
+        logger.warning(f"Failed to sync post-deletion DB snapshot to R2: {sync_err}")
+
+    # 2. Permanently purge all Cloudflare R2 files and avatars
     try:
         delete_all_user_r2_data(user_email)
     except Exception as r2_err:
         logger.error(f"Error purging R2 data for {user_email}: {r2_err}")
 
-    # 3. Dispatch final confirmation email
+    # 3. Dispatch final confirmation farewell email
     try:
         send_account_deleted_confirmation_email(
             recipient_email=user_email,
@@ -1999,7 +2015,7 @@ def confirm_account_deletion(
 
     return {
         "success": True,
-        "message": f"Account {user_email} and all associated donor records have been permanently deleted."
+        "message": f"Account {user_email}, donor profiles, credentials, active sessions, and cloud files have been permanently deleted."
     }
 
 # ==========================================
