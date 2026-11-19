@@ -63,16 +63,25 @@ def create_database_engine():
                 "Activating persistent SQLite fallback with StaticPool."
             )
 
-    # Requirement 2: Resilient persistent SQLite fallback in system temp directory (Workspace stays 100% clean)
+    # Requirement 2: Resilient persistent SQLite fallback with Cloudflare R2 Cloud Sync
     logger.info("Initializing persistent SQLite fallback engine...")
     is_sqlite_fallback = True
     sqlite_path = (os.environ.get("SQLITE_DB_PATH") or os.path.join(tempfile.gettempdir(), "bloodmatch_fallback.db")).replace("\\", "/")
+
+    # Auto-restore persistent snapshot from Cloudflare R2 before engine initialization
+    try:
+        from r2_db_sync import restore_db_from_r2
+        restore_db_from_r2(sqlite_path)
+    except Exception as r2_err:
+        logger.warning(f"[database] Cloudflare R2 database pre-restore warning: {r2_err}")
+
     return create_engine(
         f"sqlite:///{sqlite_path}",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool
     )
 
+sqlite_path = (os.environ.get("SQLITE_DB_PATH") or os.path.join(tempfile.gettempdir(), "bloodmatch_fallback.db")).replace("\\", "/")
 engine = create_database_engine()
 
 # Clean Session Factory
@@ -86,11 +95,18 @@ def get_db() -> Generator[Session, None, None]:
     """
     FastAPI dependency that provides an isolated database session.
     Commits on successful completion, rolls back on any exception, and strictly closes.
+    Automatically pushes SQLite modifications to Cloudflare R2 object storage.
     """
     db = SessionLocal()
     try:
         yield db
         db.commit()
+        if is_sqlite_fallback:
+            try:
+                from r2_db_sync import trigger_db_sync_async
+                trigger_db_sync_async(sqlite_path)
+            except Exception:
+                pass
     except Exception:
         db.rollback()
         raise
@@ -152,5 +168,13 @@ def init_db():
                 session.add_all(seeds)
                 session.commit()
                 logger.info("Default 0-unit inventory initialized successfully.")
+
+        # Persist updated schema / initial seeds to Cloudflare R2
+        if is_sqlite_fallback:
+            try:
+                from r2_db_sync import sync_db_to_r2
+                sync_db_to_r2(sqlite_path, force=True)
+            except Exception as r2_err:
+                logger.warning(f"R2 post-init sync warning: {r2_err}")
     except Exception as exc:
         logger.error(f"Auto-schema migration warning: {exc}")

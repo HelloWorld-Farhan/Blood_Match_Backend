@@ -12,6 +12,7 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import os
+        os.environ["TESTING"] = "1"
         os.environ["MOCK_EXTERNAL_EMAIL"] = "1"
         init_db()
         cls.client = TestClient(app)
