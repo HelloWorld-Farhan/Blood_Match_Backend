@@ -600,12 +600,7 @@ def register_user(
     all_users = db.query(UserModel).all()
     for u in all_users:
         if u.email != email_clean:
-            phones_to_check = []
-            if u.phone:
-                phones_to_check.append(u.phone)
-            phones_to_check.extend(u.get_saved_phones())
-            for p in phones_to_check:
-                if match_phone_numbers(phone_clean, p):
+            if u.phone and match_phone_numbers(phone_clean, u.phone):
                     if u.is_verified:
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
@@ -618,6 +613,35 @@ def register_user(
                         db.delete(u)
                         db.flush()
                         break
+
+    # Check across Cloudflare R2 backup to guarantee mobile number uniqueness
+    try:
+        from storage_service import get_r2_client, R2_BUCKET_NAME
+        r2 = get_r2_client()
+        if r2:
+            paginator = r2.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix="users/"):
+                for obj in page.get("Contents", []):
+                    key = obj.get("Key", "")
+                    if key.endswith("/auth_record.json"):
+                        try:
+                            record_obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=key)
+                            r2_record = json.loads(record_obj["Body"].read().decode("utf-8"))
+                            r2_email = r2_record.get("email", "").strip().lower()
+                            r2_phone = r2_record.get("phone")
+                            if r2_email != email_clean and r2_phone and match_phone_numbers(phone_clean, r2_phone):
+                                raise HTTPException(
+                                    status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail="This mobile number is already registered with another account. Each account must have a unique phone number."
+                                )
+                        except HTTPException:
+                            raise
+                        except Exception:
+                            continue
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning(f"R2 uniqueness check warning: {exc}")
 
     # 3. Check for existing account (Local DB or R2 permanent mirror)
     existing_user = get_user_by_email_or_r2(email_clean, db)
@@ -1012,21 +1036,55 @@ def find_user_by_credential(credential: str, db: Session) -> Optional[UserModel]
                 db.refresh(user)
         return user
     else:
-        # Search by phone number across all users
+        # Search by phone number across all users in DB
         input_digits = extract_phone_digits(raw)
         if len(input_digits) < 7:
             return None
         
         users = db.query(UserModel).all()
         for u in users:
-            phones_to_check = []
-            if u.phone:
-                phones_to_check.append(u.phone)
-            phones_to_check.extend(u.get_saved_phones())
-            
-            for p in phones_to_check:
-                if match_phone_numbers(raw, p):
-                    return u
+            if u.phone and match_phone_numbers(raw, u.phone):
+                return u
+
+        # Fallback: Check Cloudflare R2 backup records if not found in local DB
+        try:
+            from storage_service import get_r2_client, R2_BUCKET_NAME
+            r2 = get_r2_client()
+            if r2:
+                paginator = r2.get_paginator("list_objects_v2")
+                for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix="users/"):
+                    for obj in page.get("Contents", []):
+                        key = obj.get("Key", "")
+                        if key.endswith("/auth_record.json"):
+                            try:
+                                record_obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=key)
+                                r2_record = json.loads(record_obj["Body"].read().decode("utf-8"))
+                                r2_phone = r2_record.get("phone")
+                                if r2_phone and match_phone_numbers(raw, r2_phone):
+                                    email_clean = r2_record.get("email").strip().lower()
+                                    existing = db.query(UserModel).filter(UserModel.email == email_clean).first()
+                                    if not existing:
+                                        existing = UserModel(
+                                            id=r2_record.get("id") or str(uuid.uuid4()),
+                                            full_name=r2_record.get("full_name") or "Clinician",
+                                            email=email_clean,
+                                            phone=r2_phone,
+                                            hashed_password=r2_record.get("hashed_password"),
+                                            is_verified=bool(r2_record.get("is_verified", True)),
+                                            is_2fa_enabled=bool(r2_record.get("is_2fa_enabled", False)),
+                                            photo_url=r2_record.get("photo_url"),
+                                            saved_phones=json.dumps(r2_record.get("saved_phones") or []),
+                                            verified_emails=json.dumps(r2_record.get("verified_emails") or [email_clean])
+                                        )
+                                        db.add(existing)
+                                        db.commit()
+                                        db.refresh(existing)
+                                    return existing
+                            except Exception:
+                                continue
+        except Exception as r2_err:
+            logger.warning(f"R2 phone lookup fallback failed: {r2_err}")
+
         return None
 
 @app.get("/api/auth/phone-lookup", tags=["Authentication"])

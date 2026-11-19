@@ -53,11 +53,12 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertEqual(data["dial_code"], "+91")
         self.assertEqual(data["country_code"], "IN")
 
-        # 2. Lookup with secondary saved phone
-        resp2 = self.client.get("/api/auth/phone-lookup", params={"phone": "5554321098"})
+        # 2. Lookup with full international formatted phone
+        resp2 = self.client.get("/api/auth/phone-lookup", params={"phone": "+91 98765 43210"})
         self.assertEqual(resp2.status_code, 200)
         data2 = resp2.json()
         self.assertTrue(data2["found"])
+        self.assertEqual(data2["dial_code"], "+91")
 
     def test_phone_lookup_endpoint_unmatched_fallback(self):
         # Number not in DB, but matches Indian 10-digit mobile rule
@@ -105,18 +106,16 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertIn("access_token", data)
         self.assertEqual(data["user"]["email"], self.test_email)
 
-    def test_login_by_secondary_saved_phone(self):
-        # User enters secondary phone
+    def test_login_by_unlinked_phone_fails_401(self):
+        # An unlinked phone number must strictly be rejected with 401
         payload = {
-            "identifier": "555-432-1098",
+            "identifier": "9811122233",
             "password": self.password,
-            "device_id": "test-device-04"
+            "device_id": "test-device-unlinked"
         }
         resp = self.client.post("/api/auth/login", json=payload)
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertIn("access_token", data)
-        self.assertEqual(data["user"]["email"], self.test_email)
+        self.assertEqual(resp.status_code, 401)
+        self.assertIn("invalid", resp.json()["detail"].lower())
 
     def test_login_invalid_phone_or_password(self):
         # Wrong phone

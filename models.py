@@ -13,7 +13,7 @@ class UserModel(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     full_name = Column(String(100), nullable=False)
     email = Column(String(120), unique=True, index=True, nullable=False)
-    phone = Column(String(30), nullable=True)
+    phone = Column(String(50), unique=True, index=True, nullable=True)
     hashed_password = Column(String(255), nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
