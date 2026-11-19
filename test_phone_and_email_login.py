@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from database import init_db, SessionLocal
 from main import app, hash_password
-from models import UserModel, OtpTokenModel, UserSessionModel
+from models import UserModel, OtpTokenModel, UserSessionModel, TrustedDeviceModel
 
 class TestPhoneAndEmailLogin(unittest.TestCase):
     @classmethod
@@ -411,6 +411,122 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         })
         self.assertEqual(login_resp.status_code, 200)
         self.assertEqual(login_resp.json()["user"]["email"], self.test_email)
+
+    def test_terminated_session_requires_step_up_otp_on_relogin(self):
+        device_a = f"dev-term-{uuid.uuid4().hex[:6]}"
+        device_b = f"dev-curr-{uuid.uuid4().hex[:6]}"
+
+        # 1. Login on Device A with remember_device=True
+        login_a = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": device_a,
+            "remember_device": True
+        })
+        self.assertEqual(login_a.status_code, 200)
+        data_a = login_a.json()
+        self.assertFalse(data_a.get("two_factor_required", False))
+        token_a = data_a["access_token"]
+
+        # Verify Device A is recorded in TrustedDeviceModel
+        self.session.expire_all()
+        trusted = self.session.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == self.user.id,
+            TrustedDeviceModel.device_id == device_a
+        ).first()
+        self.assertIsNotNone(trusted)
+
+        # 2. Login on Device B (current active session)
+        login_b = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": device_b,
+            "remember_device": True
+        })
+        self.assertEqual(login_b.status_code, 200)
+        token_b = login_b.json()["access_token"]
+
+        # Fetch sessions using Device B
+        sessions_resp = self.client.get("/api/sessions", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(sessions_resp.status_code, 200)
+        sessions_list = sessions_resp.json()
+        session_a_entry = next((s for s in sessions_list if s["device_id"] == device_a), None)
+        self.assertIsNotNone(session_a_entry)
+        session_a_id = session_a_entry["id"]
+
+        # 3. Terminate Device A's session from Device B
+        term_resp = self.client.delete(f"/api/sessions/{session_a_id}", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(term_resp.status_code, 200)
+        self.assertEqual(term_resp.json()["status"], "revoked")
+
+        # Verify Device A's session in DB is now "revoked" and device trust is deleted
+        self.session.expire_all()
+        sess_record = self.session.query(UserSessionModel).filter(UserSessionModel.id == session_a_id).first()
+        self.assertEqual(sess_record.status, "revoked")
+        trusted_after = self.session.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == self.user.id,
+            TrustedDeviceModel.device_id == device_a
+        ).first()
+        self.assertIsNone(trusted_after)
+
+        # Verify old token from Device A is immediately rejected with 401
+        check_term = self.client.get("/api/sessions", headers={"Authorization": f"Bearer {token_a}"})
+        self.assertEqual(check_term.status_code, 401)
+
+        # 4. Device A attempts to log in again: MUST require Step-Up 2FA OTP challenge!
+        relogin_a = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": device_a,
+            "remember_device": True
+        })
+        self.assertEqual(relogin_a.status_code, 200)
+        relogin_data = relogin_a.json()
+        self.assertTrue(relogin_data.get("two_factor_required"))
+        self.assertIn("Two-factor authentication required", relogin_data.get("message", ""))
+
+        # 5. Fetch the issued 2FA OTP from DB
+        otp_token = (
+            self.session.query(OtpTokenModel)
+            .filter(
+                OtpTokenModel.email == self.test_email,
+                OtpTokenModel.token_type == "2fa_login",
+                OtpTokenModel.is_used == False
+            )
+            .order_by(OtpTokenModel.created_at.desc())
+            .first()
+        )
+        self.assertIsNotNone(otp_token)
+
+        # 6. Verify 2FA OTP with remember_device=True
+        verify_resp = self.client.post("/api/auth/2fa/verify", json={
+            "email": self.test_email,
+            "otp_code": otp_token.otp_code,
+            "device_id": device_a,
+            "remember_device": True
+        })
+        self.assertEqual(verify_resp.status_code, 200)
+        new_token_a = verify_resp.json()["access_token"]
+        self.assertTrue(len(new_token_a) > 20)
+
+        # Verify Device A is now trusted again in DB
+        self.session.expire_all()
+        trusted_restored = self.session.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == self.user.id,
+            TrustedDeviceModel.device_id == device_a
+        ).first()
+        self.assertIsNotNone(trusted_restored)
+
+        # 7. Next login from Device A: Direct authentication succeeds without 2FA prompt
+        subsequent_login = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": device_a,
+            "remember_device": True
+        })
+        self.assertEqual(subsequent_login.status_code, 200)
+        self.assertFalse(subsequent_login.json().get("two_factor_required", False))
+        self.assertIn("access_token", subsequent_login.json())
 
 if __name__ == "__main__":
     unittest.main()

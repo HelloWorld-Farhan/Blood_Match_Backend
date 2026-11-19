@@ -1317,6 +1317,34 @@ def login_user(
                 "remember_device": payload.remember_device
             }
 
+        # Whitelist device if remember_device is requested and device not yet trusted
+        if payload.remember_device and not trusted_device:
+            trusted_count = db.query(TrustedDeviceModel).filter(TrustedDeviceModel.user_id == user.id).count()
+            if trusted_count >= 20:
+                oldest_device = (
+                    db.query(TrustedDeviceModel)
+                    .filter(TrustedDeviceModel.user_id == user.id)
+                    .order_by(TrustedDeviceModel.last_used_at.asc())
+                    .first()
+                )
+                if oldest_device:
+                    db.delete(oldest_device)
+                    db.flush()
+
+            new_trusted = TrustedDeviceModel(
+                user_id=user.id,
+                device_id=fp["device_id"],
+                device_name=fp["device_name"],
+                browser=fp["browser"],
+                os=fp["os"],
+                ip_address=fp["ip_address"],
+                trusted_at=now,
+                last_used_at=now
+            )
+            db.add(new_trusted)
+            db.flush()
+            trusted_device = new_trusted
+
         # Check if this device is recognized as a Primary Device
         is_primary_dev = user.is_device_primary(fp["device_id"]) or bool(trusted_device and getattr(trusted_device, "is_primary", False))
 
@@ -2614,8 +2642,22 @@ def revoke_other_sessions(
             TrustedDeviceModel.user_id == current_user.id,
             TrustedDeviceModel.device_id.in_(device_ids_to_untrust)
         ).delete(synchronize_session=False)
+        for dev_id in device_ids_to_untrust:
+            current_user.remove_primary_device(dev_id)
 
     db.commit()
+
+    # Sync user state and DB to permanent R2 storage
+    try:
+        sync_user_state_to_r2(current_user.email, db)
+    except Exception as exc:
+        logger.warning(f"Failed to sync user state to R2 on revoke_others: {exc}")
+    try:
+        from r2_db_sync import sync_db_to_r2
+        from database import sqlite_path
+        sync_db_to_r2(sqlite_path, force=True)
+    except Exception as sync_err:
+        logger.warning(f"Failed to sync DB to R2 on revoke_others: {sync_err}")
 
     return {
         "message": "All other active device sessions have been terminated and device trust revoked.",
@@ -2662,8 +2704,22 @@ def revoke_session(
             TrustedDeviceModel.user_id == current_user.id,
             TrustedDeviceModel.device_id == session_record.device_id
         ).delete(synchronize_session=False)
+        current_user.remove_primary_device(session_record.device_id)
 
     db.commit()
+
+    # Sync user state and DB to permanent R2 storage
+    try:
+        sync_user_state_to_r2(current_user.email, db)
+    except Exception as exc:
+        logger.warning(f"Failed to sync user state to R2 on revoke_session: {exc}")
+    try:
+        from r2_db_sync import sync_db_to_r2
+        from database import sqlite_path
+        sync_db_to_r2(sqlite_path, force=True)
+    except Exception as sync_err:
+        logger.warning(f"Failed to sync DB to R2 on revoke_session: {sync_err}")
+
     return {
         "message": f"Device session ({session_record.device_name}) has been terminated and device trust revoked.",
         "session_id": session_id,
