@@ -1,4 +1,5 @@
 import os
+import re
 import smtplib
 import logging
 import base64
@@ -10,6 +11,13 @@ import requests
 from jinja2 import Template
 
 logger = logging.getLogger("BloodBackend.EmailService")
+
+def sanitize_recipient_name(name: Optional[str]) -> str:
+    """Completely strips honorifics (Dr., Dr, Doctor, etc.) so user is addressed cleanly."""
+    if not name:
+        return "Clinician"
+    cleaned = re.sub(r'^(?:Dr\.?|Doctor|Prof\.?|Mr\.?|Mrs\.?|Ms\.?)\s+', '', str(name).strip(), flags=re.IGNORECASE).strip()
+    return cleaned or "Clinician"
 
 # Environment-based SMTP configuration (Zero hardcoded credentials)
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
@@ -707,6 +715,7 @@ def _dispatch_smtp(subject: str, recipient_email: str, text_body: str, html_body
         return False
 
 def send_verification_email(recipient_email: str, recipient_name: str, otp_code: str) -> bool:
+    recipient_name = sanitize_recipient_name(recipient_name)
     # 1. Primary delivery: Autonomous Google Apps Script Webhook
     gas_payload = {
         "to": recipient_email,
@@ -726,6 +735,7 @@ def send_verification_email(recipient_email: str, recipient_name: str, otp_code:
     return _dispatch_smtp(f"BloodMatch Verification Code: {otp_code}", recipient_email, rendered_text, rendered_html)
 
 def send_lockout_alert_email(recipient_email: str, recipient_name: str, unlock_code: str) -> bool:
+    recipient_name = sanitize_recipient_name(recipient_name)
     # 1. Primary delivery: Autonomous Google Apps Script Webhook
     gas_payload = {
         "to": recipient_email,
@@ -746,6 +756,7 @@ def send_lockout_alert_email(recipient_email: str, recipient_name: str, unlock_c
 
 def send_password_reset_email(recipient_email: str, recipient_name: str, otp_code: str) -> bool:
     """Dispatches the 6-digit password reset verification code."""
+    recipient_name = sanitize_recipient_name(recipient_name)
     # 1. Primary delivery: Autonomous Google Apps Script Webhook
     gas_payload = {
         "to": recipient_email,
@@ -773,6 +784,7 @@ def send_password_changed_notification(
     device_info: Optional[str] = None
 ) -> bool:
     """Dispatches the security audit confirmation email upon successful password update."""
+    recipient_name = sanitize_recipient_name(recipient_name)
     effective_browser = device_info or browser
 
     # 1. Primary delivery: Autonomous Google Apps Script Webhook
@@ -816,6 +828,7 @@ def send_2fa_login_email(
     ip_address: str
 ) -> bool:
     """Dispatches 2FA step-up login verification email."""
+    recipient_name = sanitize_recipient_name(recipient_name)
     # 1. Primary delivery: Autonomous Google Apps Script Webhook
     gas_payload = {
         "to": recipient_email,
@@ -850,6 +863,7 @@ def send_2fa_login_email(
 
 def send_welcome_email(recipient_email: str, recipient_name: str, member_id: Optional[str] = None) -> bool:
     """Dispatches the clean, relevant welcome & thank-you email once profile is verified."""
+    recipient_name = sanitize_recipient_name(recipient_name)
     # 1. Primary delivery: Autonomous Google Apps Script Webhook
     gas_payload = {
         "to": recipient_email,
@@ -877,6 +891,7 @@ def send_new_login_session_alert(
     timestamp: str
 ) -> bool:
     """Dispatches security advisory email when account logs in from a new workstation or session."""
+    recipient_name = sanitize_recipient_name(recipient_name)
     # 1. Primary delivery: Autonomous Google Apps Script Webhook
     gas_payload = {
         "to": recipient_email,
@@ -914,6 +929,7 @@ def send_new_login_session_alert(
 
 def send_donor_thankyou_email(recipient_email: str, recipient_name: str, blood_type: str, location: str) -> bool:
     """Dispatches the voluntary blood donor thank-you & emergency readiness notice."""
+    recipient_name = sanitize_recipient_name(recipient_name)
     gas_payload = {
         "to": recipient_email,
         "name": recipient_name,
@@ -933,6 +949,7 @@ def send_donor_thankyou_email(recipient_email: str, recipient_name: str, blood_t
 
 def send_account_deletion_otp_email(recipient_email: str, recipient_name: str, otp_code: str) -> bool:
     """Dispatches the critical 6-digit confirmation code for permanent account deletion."""
+    recipient_name = sanitize_recipient_name(recipient_name)
     gas_payload = {
         "to": recipient_email,
         "name": recipient_name,
@@ -966,6 +983,7 @@ def send_account_deletion_otp_email(recipient_email: str, recipient_name: str, o
 
 def send_account_deleted_confirmation_email(recipient_email: str, recipient_name: str) -> bool:
     """Dispatches final confirmation that account and all associated records have been wiped."""
+    recipient_name = sanitize_recipient_name(recipient_name)
     gas_payload = {
         "to": recipient_email,
         "name": recipient_name,
@@ -1029,8 +1047,9 @@ def send_emergency_donor_dispatch_email(
     requester_phone: Optional[str] = None
 ) -> bool:
     """Dispatches high-urgency mobilization call to a compatible voluntary donor."""
+    donor_name = sanitize_recipient_name(donor_name)
     effective_phone = contact_number or requester_phone or "Attending Hospital Dispatch"
-    effective_requester = requester_name or "Emergency Transfusion Coordinator"
+    effective_requester = sanitize_recipient_name(requester_name) if requester_name else "Emergency Transfusion Coordinator"
     subject = f"🚨 URGENT: Blood Donation Needed ({blood_type}) - Emergency Dispatch"
 
     text_body = f"""URGENT CLINICAL MOBILIZATION NOTICE
@@ -1153,6 +1172,7 @@ def send_clinician_donor_roster_email(
     dispatch_id: Optional[str] = None
 ) -> bool:
     """Dispatches top proximity sorted compatible donor roster to the clinician for offline backup with optional attached PDF docket."""
+    clinician_name = sanitize_recipient_name(clinician_name)
     subject = f"Clinical Emergency Donor Roster: {recipient_blood_type} Transfusion"
     
     gas_payload = {
@@ -1192,7 +1212,7 @@ def send_clinician_donor_roster_email(
         </tr>
         """
 
-    text_body = f"BloodMatch Emergency Transfusion Network\nRanked Compatible Donor Roster for Group {recipient_blood_type}\n\n{rows_text}\nGenerated for Dr. {clinician_name}."
+    text_body = f"BloodMatch Emergency Transfusion Network\nRanked Compatible Donor Roster for Group {recipient_blood_type}\n\n{rows_text}\nGenerated for {clinician_name}."
     
     html_body = f"""
     <!DOCTYPE html>
@@ -1272,6 +1292,9 @@ def send_transfusion_fulfilled_emails(
     2. The voluntary donor expressing heartfelt clinical thanks for saving a life.
     """
     results = {"requester_sent": False, "donor_sent": False}
+    donor_name = sanitize_recipient_name(donor_name)
+    if requester_name:
+        requester_name = sanitize_recipient_name(requester_name)
     
     # 1. Email to Requester
     if requester_email and "@" in requester_email:

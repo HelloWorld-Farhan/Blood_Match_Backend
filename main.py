@@ -120,6 +120,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("BloodBackend.App")
 
+def sanitize_display_name(name: Optional[str]) -> str:
+    """Completely strips honorifics (Dr., Dr, Doctor, etc.) so user is addressed cleanly."""
+    if not name:
+        return "Clinician"
+    cleaned = re.sub(r'^(?:Dr\.?|Doctor|Prof\.?|Mr\.?|Mrs\.?|Ms\.?)\s+', '', str(name).strip(), flags=re.IGNORECASE).strip()
+    return cleaned or "Clinician"
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database schema on startup...")
@@ -131,8 +138,25 @@ async def lifespan(app: FastAPI):
             count = restore_all_users_from_r2(session)
             if count > 0:
                 logger.info(f"Startup R2 user reconciliation completed: {count} accounts restored.")
+            # Auto-sanitize any existing clinician names in DB (removes legacy 'Dr.' prefixes)
+            all_users = session.query(UserModel).all()
+            modified = False
+            for u in all_users:
+                cleaned = sanitize_display_name(u.full_name)
+                if cleaned != u.full_name:
+                    u.full_name = cleaned
+                    modified = True
+            if modified:
+                session.commit()
+                logger.info("Startup migration: Sanitized clinician names in database (removed 'Dr.' prefix).")
+                try:
+                    from r2_db_sync import sync_db_to_r2
+                    from database import sqlite_path
+                    sync_db_to_r2(sqlite_path, force=True)
+                except Exception as sync_err:
+                    logger.warning(f"Failed to sync sanitized DB to R2 on startup: {sync_err}")
     except Exception as exc:
-        logger.warning(f"Could not restore users from R2 on startup: {exc}")
+        logger.warning(f"Could not restore or sanitize users on startup: {exc}")
     logger.info(f"Database readiness verified (Fallback Active: {is_sqlite_fallback}).")
     yield
     logger.info("Application shutting down.")
@@ -654,7 +678,7 @@ def register_user(
         else:
             # User previously attempted registration but is pending verification.
             # Seamlessly refresh their registration, issue a fresh OTP, and dispatch immediately!
-            existing_user.full_name = payload.full_name.strip()
+            existing_user.full_name = sanitize_display_name(payload.full_name)
             existing_user.phone = phone_clean
             existing_user.hashed_password = hash_password(payload.password)
             db.flush()
@@ -696,7 +720,7 @@ def register_user(
 
     # 5. Create User with is_verified=False (Activation Boundary)
     new_user = UserModel(
-        full_name=payload.full_name.strip(),
+        full_name=sanitize_display_name(payload.full_name),
         email=email_clean,
         phone=phone_clean,
         hashed_password=hashed_pw,
@@ -1115,7 +1139,7 @@ def resolve_credential_lookup(raw_cred: str, db: Session) -> dict:
             }
             country_code = KNOWN_DIAL_CODES.get(dial_code, "IN")
 
-        name = user.full_name.strip() if user.full_name else "Clinician"
+        name = sanitize_display_name(user.full_name)
         first = name.split()[0] if name else "Clinician"
 
         return {
@@ -3287,10 +3311,11 @@ def upsert_clinician_profile(
     db: Session = Depends(get_db)
 ):
     email_clean = payload.work_email.strip().lower()
+    clean_name = sanitize_display_name(payload.full_name)
     profile = db.query(ClinicianProfileModel).filter(ClinicianProfileModel.work_email == email_clean).first()
     if not profile:
         profile = ClinicianProfileModel(
-            full_name=payload.full_name,
+            full_name=clean_name,
             work_email=email_clean,
             phone=payload.phone,
             facility=payload.facility,
@@ -3300,7 +3325,7 @@ def upsert_clinician_profile(
         )
         db.add(profile)
     else:
-        profile.full_name = payload.full_name
+        profile.full_name = clean_name
         profile.phone = payload.phone
         profile.facility = payload.facility
         profile.department = payload.department
@@ -3324,7 +3349,7 @@ def update_user_profile(
     Email, verified mobile phone, and unique ID are system-bound and strictly immutable.
     Syncs across database and Cloudflare R2 backup.
     """
-    cleaned_name = payload.full_name.strip()
+    cleaned_name = sanitize_display_name(payload.full_name)
     if len(cleaned_name) < 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

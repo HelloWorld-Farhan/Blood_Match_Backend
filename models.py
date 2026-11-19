@@ -1,8 +1,15 @@
+import re
 import uuid
 import json
+from typing import Optional
 from datetime import datetime
 from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime
 from database import Base
+
+def strip_honorific(name: Optional[str]) -> str:
+    if not name:
+        return ""
+    return re.sub(r'^(?:Dr\.?|Doctor|Prof\.?|Mr\.?|Mrs\.?|Ms\.?)\s+', '', name.strip(), flags=re.IGNORECASE).strip()
 
 def generate_uuid() -> str:
     return str(uuid.uuid4())
@@ -130,10 +137,11 @@ class UserModel(Base):
         return self.member_id
 
     def to_dict(self):
+        clean_name = strip_honorific(self.full_name) or "Clinician"
         return {
             "id": self.id,
             "member_id": self.member_id,
-            "full_name": self.full_name,
+            "full_name": clean_name,
             "email": self.email,
             "phone": self.phone,
             "saved_phones": self.get_saved_phones(),

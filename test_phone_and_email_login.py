@@ -59,7 +59,7 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertTrue(data["found"])
         self.assertEqual(data["dial_code"], "+91")
         self.assertEqual(data["country_code"], "IN")
-        self.assertIn("Dr. Farhan Khalid", data["user_name"])
+        self.assertIn("Farhan Khalid", data["user_name"])
 
         # 2. Lookup with full international formatted phone
         resp2 = self.client.get("/api/auth/phone-lookup", params={"phone": "+91 98765 43210"})
@@ -74,8 +74,8 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertEqual(resp_email.status_code, 200)
         data_email = resp_email.json()
         self.assertTrue(data_email["found"])
-        self.assertEqual(data_email["user_name"], "Dr. Farhan Khalid")
-        self.assertEqual(data_email["first_name"], "Dr.")
+        self.assertEqual(data_email["user_name"], "Farhan Khalid")
+        self.assertEqual(data_email["first_name"], "Farhan")
         self.assertEqual(data_email["email"], self.test_email)
 
         # 2. Lookup by registered phone number
@@ -83,7 +83,7 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertEqual(resp_phone.status_code, 200)
         data_phone = resp_phone.json()
         self.assertTrue(data_phone["found"])
-        self.assertEqual(data_phone["user_name"], "Dr. Farhan Khalid")
+        self.assertEqual(data_phone["user_name"], "Farhan Khalid")
 
         # 3. Lookup by unknown email
         resp_unknown = self.client.get("/api/auth/credential-lookup", params={"identifier": "unknown.user@hospital.org"})
@@ -364,7 +364,7 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
 
         # Refresh user from DB - name should update, phone must remain unchanged
         self.session.refresh(self.user)
-        self.assertEqual(self.user.full_name, "Dr. Farhan Khalid Updated")
+        self.assertEqual(self.user.full_name, "Farhan Khalid Updated")
         self.assertEqual(self.user.phone, self.primary_phone)
 
     def test_password_reset_by_phone_number_dispatches_to_linked_email(self):
