@@ -37,6 +37,38 @@ class UserModel(Base):
     # Saved phone numbers & verified emails (JSON serialized lists for cross-device sync)
     saved_phones = Column(String(1024), nullable=True, default="[]")
     verified_emails = Column(String(2048), nullable=True, default="[]")
+    primary_device_ids = Column(String(1024), nullable=True, default="[]")
+
+    def get_primary_device_ids(self) -> list:
+        if self.primary_device_ids:
+            try:
+                parsed = json.loads(self.primary_device_ids)
+                if isinstance(parsed, list):
+                    return [str(d).strip() for d in parsed if d and str(d).strip()]
+            except Exception:
+                pass
+        return []
+
+    def add_primary_device(self, device_id: str) -> list:
+        current = self.get_primary_device_ids()
+        clean = str(device_id).strip()
+        if clean and clean not in current:
+            current.append(clean)
+            self.primary_device_ids = json.dumps(current)
+        return current
+
+    def remove_primary_device(self, device_id: str) -> list:
+        current = self.get_primary_device_ids()
+        clean = str(device_id).strip()
+        if clean in current:
+            current = [d for d in current if d != clean]
+            self.primary_device_ids = json.dumps(current)
+        return current
+
+    def is_device_primary(self, device_id: str) -> bool:
+        if not device_id:
+            return False
+        return str(device_id).strip() in self.get_primary_device_ids()
 
     def get_saved_phones(self) -> list:
         phones = []
@@ -169,10 +201,11 @@ class UserSessionModel(Base):
     ip_address = Column(String(50), nullable=True, default="127.0.0.1")
     location = Column(String(120), default="Metro Transfusion Center")
     status = Column(String(20), default="active", nullable=False) # "active" | "revoked"
+    is_primary = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_active = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    def to_dict(self, current_session_id: str = None):
+    def to_dict(self, current_session_id: str = None, is_primary_override: bool = None):
         return {
             "id": self.id,
             "user_id": self.user_id,
@@ -183,6 +216,7 @@ class UserSessionModel(Base):
             "ip_address": self.ip_address,
             "location": self.location,
             "status": self.status,
+            "is_primary": bool(self.is_primary if is_primary_override is None else is_primary_override),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_active": self.last_active.isoformat() if self.last_active else None,
             "is_current": bool(current_session_id and self.id == current_session_id)
@@ -198,6 +232,7 @@ class TrustedDeviceModel(Base):
     browser = Column(String(100), nullable=True, default="Browser")
     os = Column(String(50), nullable=True, default="Operating System")
     ip_address = Column(String(50), nullable=True, default="127.0.0.1")
+    is_primary = Column(Boolean, default=False, nullable=False)
     trusted_at = Column(DateTime, default=datetime.utcnow)
     last_used_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -210,6 +245,7 @@ class TrustedDeviceModel(Base):
             "browser": self.browser,
             "os": self.os,
             "ip_address": self.ip_address,
+            "is_primary": bool(self.is_primary),
             "trusted_at": self.trusted_at.isoformat() if self.trusted_at else None,
             "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None
         }

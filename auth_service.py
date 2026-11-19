@@ -16,7 +16,7 @@ from models import UserModel, UserSessionModel
 
 JWT_SECRET = os.getenv("JWT_SECRET", "bloodmatch-clinical-security-key-2026")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440)) # 24 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 5256000)) # 10 years persistent (no auto-logout)
 
 security = HTTPBearer(auto_error=False)
 
@@ -173,23 +173,19 @@ def create_access_token(
     session_id: Optional[str] = None,
     expires_delta: Optional[timedelta] = None
 ) -> str:
-    """Mints JWT token with optional session ID ('sid') claim for instant revocation."""
+    """Mints persistent JWT token with optional session ID ('sid') claim for instant manual revocation only."""
     to_encode = data.copy()
     if session_id:
         to_encode["sid"] = session_id
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    # Default 10 years persistent expiration (never automatically logged out; only manual logout terminates)
+    expire = datetime.utcnow() + (expires_delta or timedelta(days=3650))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def decode_access_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"verify_exp": False})
         return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication token has expired. Please log in again."
-        )
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

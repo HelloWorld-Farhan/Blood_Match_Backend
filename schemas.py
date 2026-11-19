@@ -71,6 +71,10 @@ class UserRegisterRequest(BaseModel):
 class OtpVerifyRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)
     otp_code: str = Field(..., min_length=6, max_length=6)
+    device_id: Optional[str] = None
+
+class TogglePrimarySessionRequest(BaseModel):
+    is_primary: bool
 
 class OtpResendRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)

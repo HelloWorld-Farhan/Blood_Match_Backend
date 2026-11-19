@@ -38,6 +38,7 @@ from schemas import (
     OtpVerifyRequest,
     OtpResendRequest,
     UserLoginRequest,
+    TogglePrimarySessionRequest,
     AccountUnlockRequest,
     TwoFactorVerifyRequest,
     TwoFactorToggleRequest,
@@ -208,6 +209,7 @@ def sync_user_state_to_r2(user_email: str, db: Session) -> Optional[dict]:
             "photoUrl": photo_url,
             "savedPhones": user.get_saved_phones() if user else [],
             "verifiedEmails": user.get_verified_emails() if user else [email_clean],
+            "primaryDeviceIds": user.get_primary_device_ids() if user else [],
             "profile": profile.to_dict() if profile else {
                 "full_name": user.full_name if user else "",
                 "work_email": email_clean,
@@ -274,7 +276,8 @@ def reconcile_user_from_r2(user_email: str, db: Session) -> Optional[dict]:
                 is_verified=True,
                 hashed_password=hash_password("HydratedClinical@2026#"),
                 saved_phones=json.dumps(sync_data.get("savedPhones") or []),
-                verified_emails=json.dumps(sync_data.get("verifiedEmails") or [email_clean])
+                verified_emails=json.dumps(sync_data.get("verifiedEmails") or [email_clean]),
+                primary_device_ids=json.dumps(sync_data.get("primaryDeviceIds") or [])
             )
             db.add(user)
         else:
@@ -286,6 +289,9 @@ def reconcile_user_from_r2(user_email: str, db: Session) -> Optional[dict]:
             if sync_data.get("verifiedEmails"):
                 for e in sync_data.get("verifiedEmails"):
                     user.add_verified_email(e)
+            if sync_data.get("primaryDeviceIds"):
+                for d in sync_data.get("primaryDeviceIds"):
+                    user.add_primary_device(d)
             db.add(user)
 
         # 2. Profile Hydration
@@ -746,21 +752,48 @@ def verify_otp(
     user.is_verified = True
     user.verified_at = datetime.utcnow()
 
-    # Create active session for the verified user with error containment
+    # Create active primary session for the verified user with error containment
     session_id = None
     try:
-        reg_fp = parse_device_fingerprint(request)
+        dev_id = getattr(payload, "device_id", None)
+        reg_fp = parse_device_fingerprint(request, client_device_id=dev_id)
+        effective_device_id = dev_id or reg_fp.get("device_id") or "initial-registration"
+        
+        # Mark registration device as user's Primary Device
+        user.add_primary_device(effective_device_id)
+
         session_record = UserSessionModel(
             user_id=user.id,
-            device_id=reg_fp.get("device_id") or "initial-registration",
-            device_name=reg_fp.get("device_name") or "Workstation Browser",
+            device_id=effective_device_id,
+            device_name=reg_fp.get("device_name") or "Primary Workstation Browser",
             browser=reg_fp.get("browser") or "Browser",
             os=reg_fp.get("os") or "Client OS",
             ip_address=reg_fp.get("ip_address") or "127.0.0.1",
             location=reg_fp.get("location") or "Authorized Clinical Workstation",
-            status="active"
+            status="active",
+            is_primary=True
         )
         db.add(session_record)
+
+        # Register in TrustedDeviceModel as Primary
+        trusted_dev = db.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == user.id,
+            TrustedDeviceModel.device_id == effective_device_id
+        ).first()
+        if not trusted_dev:
+            trusted_dev = TrustedDeviceModel(
+                user_id=user.id,
+                device_id=effective_device_id,
+                device_name=reg_fp.get("device_name") or "Primary Workstation Browser",
+                browser=reg_fp.get("browser") or "Browser",
+                os=reg_fp.get("os") or "Client OS",
+                ip_address=reg_fp.get("ip_address") or "127.0.0.1",
+                is_primary=True
+            )
+            db.add(trusted_dev)
+        else:
+            trusted_dev.is_primary = True
+
         db.flush()
         session_id = session_record.id
     except Exception as exc:
@@ -1140,6 +1173,9 @@ def login_user(
                 "remember_device": payload.remember_device
             }
 
+        # Check if this device is recognized as a Primary Device
+        is_primary_dev = user.is_device_primary(fp["device_id"]) or bool(trusted_device and getattr(trusted_device, "is_primary", False))
+
         # Device is recognized and user.is_2fa_enabled is False -> Issue JWT directly
         session_record = UserSessionModel(
             user_id=user.id,
@@ -1149,7 +1185,8 @@ def login_user(
             os=fp["os"],
             ip_address=fp["ip_address"],
             location=fp["location"],
-            status="active"
+            status="active",
+            is_primary=is_primary_dev
         )
         db.add(session_record)
         db.flush()
@@ -1160,16 +1197,17 @@ def login_user(
         )
         db.commit()
 
-        # Security advisory for new workstation session (dispatched asynchronously in background)
-        background_tasks.add_task(
-            send_new_login_session_alert,
-            recipient_email=user.email,
-            recipient_name=user.full_name,
-            device_name=fp["device_name"],
-            ip_address=fp["ip_address"],
-            location=fp["location"],
-            timestamp=now.strftime("%Y-%m-%d %H:%M:%S UTC")
-        )
+        # Security advisory for new workstation session (suppressed for Primary Devices)
+        if not is_primary_dev:
+            background_tasks.add_task(
+                send_new_login_session_alert,
+                recipient_email=user.email,
+                recipient_name=user.full_name,
+                device_name=fp["device_name"],
+                ip_address=fp["ip_address"],
+                location=fp["location"],
+                timestamp=now.strftime("%Y-%m-%d %H:%M:%S UTC")
+            )
 
         return {
             "access_token": token,
@@ -1439,6 +1477,7 @@ def verify_2fa_login(
             db.add(new_trusted)
 
     # Register active session in user_sessions
+    is_primary_dev = user.is_device_primary(fp["device_id"])
     session_record = UserSessionModel(
         user_id=user.id,
         device_id=fp["device_id"],
@@ -1447,7 +1486,8 @@ def verify_2fa_login(
         os=fp["os"],
         ip_address=fp["ip_address"],
         location=fp["location"],
-        status="active"
+        status="active",
+        is_primary=is_primary_dev
     )
     db.add(session_record)
     db.flush()
@@ -1459,18 +1499,19 @@ def verify_2fa_login(
     )
     db.commit()
 
-    # Security advisory for step-up authorized session
-    try:
-        send_new_login_session_alert(
-            recipient_email=user.email,
-            recipient_name=user.full_name,
-            device_name=fp["device_name"],
-            ip_address=fp["ip_address"],
-            location=fp["location"],
-            timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        )
-    except Exception as alert_err:
-        logger.warning(f"Could not dispatch 2FA session alert email: {alert_err}")
+    # Security advisory for step-up authorized session (suppressed if Primary Device)
+    if not is_primary_dev:
+        try:
+            send_new_login_session_alert(
+                recipient_email=user.email,
+                recipient_name=user.full_name,
+                device_name=fp["device_name"],
+                ip_address=fp["ip_address"],
+                location=fp["location"],
+                timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            )
+        except Exception as alert_err:
+            logger.warning(f"Could not dispatch 2FA session alert email: {alert_err}")
 
     return {
         "message": "Two-factor authentication verified successfully.",
@@ -2244,7 +2285,7 @@ def list_active_sessions(
 ):
     """
     Requirement 3: Return all device sessions for authenticated user (both active and historical/revoked).
-    Flags is_current = True for the caller's workstation session.
+    Flags is_current = True for caller's workstation session, and is_primary = True for primary devices.
     """
     current_sid = getattr(current_user, "_current_session_id", None)
     all_sessions = (
@@ -2253,7 +2294,87 @@ def list_active_sessions(
         .order_by(UserSessionModel.last_active.desc())
         .all()
     )
-    return [s.to_dict(current_session_id=current_sid) for s in all_sessions]
+    result = []
+    for s in all_sessions:
+        is_primary = bool(s.is_primary or current_user.is_device_primary(s.device_id))
+        result.append(s.to_dict(current_session_id=current_sid, is_primary_override=is_primary))
+    return result
+
+@app.patch("/api/sessions/{session_id}/primary", tags=["Session Security"])
+@app.post("/api/sessions/{session_id}/primary", tags=["Session Security"])
+def toggle_session_primary(
+    session_id: str,
+    payload: TogglePrimarySessionRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Toggles or sets the Primary Device status of a session and device.
+    Users can mark multiple primary devices. Primary devices do not trigger login alert emails.
+    """
+    session_record = (
+        db.query(UserSessionModel)
+        .filter(
+            UserSessionModel.id == session_id,
+            UserSessionModel.user_id == current_user.id
+        )
+        .first()
+    )
+    if not session_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or belongs to another account."
+        )
+
+    device_id = session_record.device_id
+    session_record.is_primary = payload.is_primary
+
+    # Also update all sessions sharing this device_id
+    if device_id:
+        db.query(UserSessionModel).filter(
+            UserSessionModel.user_id == current_user.id,
+            UserSessionModel.device_id == device_id
+        ).update({"is_primary": payload.is_primary})
+
+    if payload.is_primary:
+        current_user.add_primary_device(device_id)
+        trusted = db.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == current_user.id,
+            TrustedDeviceModel.device_id == device_id
+        ).first()
+        if trusted:
+            trusted.is_primary = True
+        else:
+            db.add(TrustedDeviceModel(
+                user_id=current_user.id,
+                device_id=device_id,
+                device_name=session_record.device_name,
+                browser=session_record.browser,
+                os=session_record.os,
+                ip_address=session_record.ip_address,
+                is_primary=True
+            ))
+    else:
+        current_user.remove_primary_device(device_id)
+        db.query(TrustedDeviceModel).filter(
+            TrustedDeviceModel.user_id == current_user.id,
+            TrustedDeviceModel.device_id == device_id
+        ).update({"is_primary": False})
+
+    db.commit()
+
+    try:
+        sync_user_state_to_r2(current_user.email, db)
+    except Exception as exc:
+        logger.warning(f"Failed to sync primary devices to R2: {exc}")
+
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "device_id": device_id,
+        "is_primary": payload.is_primary,
+        "primary_device_ids": current_user.get_primary_device_ids()
+    }
 
 @app.delete("/api/sessions/others", tags=["Session Security"])
 def revoke_other_sessions(

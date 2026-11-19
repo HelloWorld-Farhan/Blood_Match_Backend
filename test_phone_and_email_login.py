@@ -133,5 +133,138 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         })
         self.assertEqual(resp2.status_code, 401)
 
+    def test_verify_otp_marks_device_as_primary(self):
+        # Test that registration OTP verification marks the registering device as primary
+        new_email = f"primary.reg.{uuid.uuid4().hex[:6]}@hospital.org"
+        signup_dev_id = f"signup-dev-{uuid.uuid4().hex[:6]}"
+
+        req_resp = self.client.post("/api/auth/register", json={
+            "email": new_email,
+            "full_name": "Dr. Primary Tester",
+            "phone": "+91 91111 22222",
+            "password": self.password
+        })
+        self.assertIn(req_resp.status_code, [200, 201])
+
+        # Get the OTP from db
+        otp_entry = self.session.query(OtpTokenModel).filter(OtpTokenModel.email == new_email).order_by(OtpTokenModel.created_at.desc()).first()
+        self.assertIsNotNone(otp_entry)
+
+        # Verify OTP
+        verify_resp = self.client.post("/api/auth/verify-otp", json={
+            "email": new_email,
+            "otp_code": otp_entry.otp_code,
+            "device_id": signup_dev_id
+        })
+        self.assertEqual(verify_resp.status_code, 200)
+
+        # Check DB user has primary device
+        created_user = self.session.query(UserModel).filter(UserModel.email == new_email).first()
+        self.assertIsNotNone(created_user)
+        self.assertTrue(created_user.is_device_primary(signup_dev_id))
+
+        # Check session is marked primary
+        sessions = self.session.query(UserSessionModel).filter(UserSessionModel.user_id == created_user.id).all()
+        self.assertTrue(any(s.is_primary for s in sessions))
+
+        # Cleanup
+        self.session.query(OtpTokenModel).filter(OtpTokenModel.email == new_email).delete()
+        self.session.query(UserSessionModel).filter(UserSessionModel.user_id == created_user.id).delete()
+        self.session.query(UserModel).filter(UserModel.email == new_email).delete()
+        self.session.commit()
+
+    def test_primary_device_suppresses_login_alert_email(self):
+        # Register user with a primary device
+        primary_dev = f"dev-primary-{uuid.uuid4().hex[:6]}"
+        self.user.add_primary_device(primary_dev)
+        self.session.commit()
+
+        with patch("main.send_new_login_session_alert") as mock_send_alert:
+            login_resp = self.client.post("/api/auth/login", json={
+                "identifier": self.test_email,
+                "password": self.password,
+                "device_id": primary_dev
+            })
+            self.assertEqual(login_resp.status_code, 200)
+            # Alert email MUST be suppressed for primary device
+            mock_send_alert.assert_not_called()
+
+    def test_non_primary_device_triggers_login_alert_email(self):
+        non_primary_dev = f"dev-secondary-{uuid.uuid4().hex[:6]}"
+
+        with patch("main.send_new_login_session_alert") as mock_send_alert:
+            login_resp = self.client.post("/api/auth/login", json={
+                "identifier": self.test_email,
+                "password": self.password,
+                "device_id": non_primary_dev
+            })
+            self.assertEqual(login_resp.status_code, 200)
+            # Alert email MUST be called for non-primary device
+            mock_send_alert.assert_called_once()
+
+    def test_toggle_primary_device_status_allows_multiple_primary(self):
+        dev1 = f"dev-multi-1-{uuid.uuid4().hex[:6]}"
+        dev2 = f"dev-multi-2-{uuid.uuid4().hex[:6]}"
+
+        # Login from dev1
+        resp1 = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": dev1
+        })
+        token1 = resp1.json()["access_token"]
+
+        # Login from dev2
+        resp2 = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": dev2
+        })
+
+        # Fetch sessions
+        sessions_resp = self.client.get("/api/sessions", headers={"Authorization": f"Bearer {token1}"})
+        self.assertEqual(sessions_resp.status_code, 200)
+        sessions = sessions_resp.json()
+        self.assertGreaterEqual(len(sessions), 2)
+
+        s1 = next(s for s in sessions if s.get("device_id") == dev1)
+        s2 = next(s for s in sessions if s.get("device_id") == dev2)
+
+        # Mark dev1 as primary
+        patch_resp1 = self.client.patch(
+            f"/api/sessions/{s1['id']}/primary",
+            json={"is_primary": True},
+            headers={"Authorization": f"Bearer {token1}"}
+        )
+        self.assertEqual(patch_resp1.status_code, 200)
+        self.assertTrue(patch_resp1.json()["is_primary"])
+
+        # Mark dev2 as primary as well (Multiple primary support)
+        patch_resp2 = self.client.patch(
+            f"/api/sessions/{s2['id']}/primary",
+            json={"is_primary": True},
+            headers={"Authorization": f"Bearer {token1}"}
+        )
+        self.assertEqual(patch_resp2.status_code, 200)
+        self.assertTrue(patch_resp2.json()["is_primary"])
+
+        # Refresh user from DB
+        self.session.refresh(self.user)
+        self.assertTrue(self.user.is_device_primary(dev1))
+        self.assertTrue(self.user.is_device_primary(dev2))
+
+        # Unmark dev1 from primary
+        unmark_resp = self.client.patch(
+            f"/api/sessions/{s1['id']}/primary",
+            json={"is_primary": False},
+            headers={"Authorization": f"Bearer {token1}"}
+        )
+        self.assertEqual(unmark_resp.status_code, 200)
+        self.assertFalse(unmark_resp.json()["is_primary"])
+
+        self.session.refresh(self.user)
+        self.assertFalse(self.user.is_device_primary(dev1))
+        self.assertTrue(self.user.is_device_primary(dev2))
+
 if __name__ == "__main__":
     unittest.main()
