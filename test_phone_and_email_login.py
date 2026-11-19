@@ -1,6 +1,7 @@
 import unittest
 import uuid
 import json
+import random
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 
@@ -24,6 +25,10 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.primary_phone = "+91 98765 43210"
         self.secondary_phone = "+1 555-432-1098"
 
+        # Clean any stale test records
+        self.session.query(UserModel).filter(UserModel.phone == self.primary_phone).delete()
+        self.session.commit()
+
         # Create verified test user
         self.user = UserModel(
             id=str(uuid.uuid4()),
@@ -42,6 +47,7 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.session.query(OtpTokenModel).filter(OtpTokenModel.email == self.test_email).delete()
         self.session.query(UserSessionModel).filter(UserSessionModel.user_id == self.user.id).delete()
         self.session.query(UserModel).filter(UserModel.email == self.test_email).delete()
+        self.session.query(UserModel).filter(UserModel.phone == self.primary_phone).delete()
         self.session.commit()
         self.session.close()
 
@@ -159,12 +165,13 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
     def test_verify_otp_marks_device_as_primary(self):
         # Test that registration OTP verification marks the registering device as primary
         new_email = f"primary.reg.{uuid.uuid4().hex[:6]}@hospital.org"
+        signup_phone = f"+91 91{str(random.randint(10000000, 99999999))}"
         signup_dev_id = f"signup-dev-{uuid.uuid4().hex[:6]}"
 
         req_resp = self.client.post("/api/auth/register", json={
             "email": new_email,
             "full_name": "Dr. Primary Tester",
-            "phone": "+91 91111 22222",
+            "phone": signup_phone,
             "password": self.password
         })
         self.assertIn(req_resp.status_code, [200, 201])
