@@ -1087,24 +1087,26 @@ def find_user_by_credential(credential: str, db: Session) -> Optional[UserModel]
 
         return None
 
-@app.get("/api/auth/phone-lookup", tags=["Authentication"])
-def lookup_phone_country_code(
-    phone: str = Query(..., min_length=3),
-    db: Session = Depends(get_db)
-):
-    """
-    Checks if the entered phone number matches an existing user in the database.
-    If matched, extracts and returns the registered country code and dial code.
-    If not matched in DB, predicts the country code based on number format (e.g. 10 digits for India).
-    """
-    raw_phone = phone.strip()
-    user = find_user_by_credential(raw_phone, db)
-    
-    if user and user.phone:
-        matched_phone = user.phone.strip()
+def resolve_credential_lookup(raw_cred: str, db: Session) -> dict:
+    raw = (raw_cred or "").strip()
+    if not raw:
+        return {
+            "found": False,
+            "user_name": None,
+            "first_name": None,
+            "full_name": None,
+            "dial_code": "+91",
+            "country_code": "IN",
+            "formatted_phone": None,
+            "email": None
+        }
+
+    user = find_user_by_credential(raw, db)
+    if user:
         dial_code = "+91"
         country_code = "IN"
-        if matched_phone.startswith("+"):
+        matched_phone = user.phone.strip() if user.phone else None
+        if matched_phone and matched_phone.startswith("+"):
             parts = matched_phone.split()
             dial_code = parts[0]
             KNOWN_DIAL_CODES = {
@@ -1112,37 +1114,81 @@ def lookup_phone_country_code(
                 "+966": "SA", "+49": "DE", "+65": "SG", "+92": "PK", "+880": "BD"
             }
             country_code = KNOWN_DIAL_CODES.get(dial_code, "IN")
-            
+
+        name = user.full_name.strip() if user.full_name else "Clinician"
+        first = name.split()[0] if name else "Clinician"
+
         return {
             "found": True,
+            "user_name": name,
+            "first_name": first,
+            "full_name": name,
             "dial_code": dial_code,
             "country_code": country_code,
             "formatted_phone": matched_phone,
-            "user_name": user.full_name.split()[0] if user.full_name else "Clinician"
+            "email": user.email
         }
-    
-    digits = extract_phone_digits(raw_phone)
-    if len(digits) == 10 and digits[0] in ['6', '7', '8', '9']:
-        return {
-            "found": False,
-            "dial_code": "+91",
-            "country_code": "IN",
-            "formatted_phone": None
-        }
-    elif len(digits) == 10 and digits[0] in ['2', '3', '4', '5']:
-        return {
-            "found": False,
-            "dial_code": "+1",
-            "country_code": "US",
-            "formatted_phone": None
-        }
-    
+
+    # Not found in DB: predict dial code if phone number
+    if "@" not in raw:
+        digits = extract_phone_digits(raw)
+        if len(digits) == 10 and digits[0] in ['6', '7', '8', '9']:
+            return {
+                "found": False,
+                "user_name": None,
+                "first_name": None,
+                "full_name": None,
+                "dial_code": "+91",
+                "country_code": "IN",
+                "formatted_phone": None,
+                "email": None
+            }
+        elif len(digits) == 10 and digits[0] in ['2', '3', '4', '5']:
+            return {
+                "found": False,
+                "user_name": None,
+                "first_name": None,
+                "full_name": None,
+                "dial_code": "+1",
+                "country_code": "US",
+                "formatted_phone": None,
+                "email": None
+            }
+
     return {
         "found": False,
+        "user_name": None,
+        "first_name": None,
+        "full_name": None,
         "dial_code": "+91",
         "country_code": "IN",
-        "formatted_phone": None
+        "formatted_phone": None,
+        "email": None
     }
+
+@app.get("/api/auth/phone-lookup", tags=["Authentication"])
+def lookup_phone_country_code(
+    phone: Optional[str] = Query(None),
+    identifier: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Checks if the entered phone number or identifier matches an existing user in the database.
+    If matched, extracts and returns the registered country code, dial code, and clinician user name.
+    """
+    target = identifier or phone or ""
+    return resolve_credential_lookup(target, db)
+
+@app.get("/api/auth/credential-lookup", tags=["Authentication"])
+def lookup_credential(
+    identifier: str = Query(..., min_length=2),
+    db: Session = Depends(get_db)
+):
+    """
+    Checks if entered identifier (email or phone) matches a clinician account in real-time.
+    Returns user details (name, email, dial code, flag) for personalized greetings.
+    """
+    return resolve_credential_lookup(identifier, db)
 
 @app.post("/api/auth/login", tags=["Authentication"])
 def login_user(

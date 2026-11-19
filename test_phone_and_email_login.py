@@ -52,6 +52,7 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertTrue(data["found"])
         self.assertEqual(data["dial_code"], "+91")
         self.assertEqual(data["country_code"], "IN")
+        self.assertIn("Dr. Farhan Khalid", data["user_name"])
 
         # 2. Lookup with full international formatted phone
         resp2 = self.client.get("/api/auth/phone-lookup", params={"phone": "+91 98765 43210"})
@@ -59,6 +60,28 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         data2 = resp2.json()
         self.assertTrue(data2["found"])
         self.assertEqual(data2["dial_code"], "+91")
+
+    def test_credential_lookup_endpoint_email_and_phone(self):
+        # 1. Lookup by registered email
+        resp_email = self.client.get("/api/auth/credential-lookup", params={"identifier": self.test_email})
+        self.assertEqual(resp_email.status_code, 200)
+        data_email = resp_email.json()
+        self.assertTrue(data_email["found"])
+        self.assertEqual(data_email["user_name"], "Dr. Farhan Khalid")
+        self.assertEqual(data_email["first_name"], "Dr.")
+        self.assertEqual(data_email["email"], self.test_email)
+
+        # 2. Lookup by registered phone number
+        resp_phone = self.client.get("/api/auth/credential-lookup", params={"identifier": "9876543210"})
+        self.assertEqual(resp_phone.status_code, 200)
+        data_phone = resp_phone.json()
+        self.assertTrue(data_phone["found"])
+        self.assertEqual(data_phone["user_name"], "Dr. Farhan Khalid")
+
+        # 3. Lookup by unknown email
+        resp_unknown = self.client.get("/api/auth/credential-lookup", params={"identifier": "unknown.user@hospital.org"})
+        self.assertEqual(resp_unknown.status_code, 200)
+        self.assertFalse(resp_unknown.json()["found"])
 
     def test_phone_lookup_endpoint_unmatched_fallback(self):
         # Number not in DB, but matches Indian 10-digit mobile rule
