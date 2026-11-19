@@ -2771,14 +2771,24 @@ def list_inventory(db: Session = Depends(get_db)):
         donor_counts[bt] = donor_counts.get(bt, 0) + max(1, d.units_donated_total or 1)
 
     result = []
+    has_changes = False
     for item in items:
-        d_dict = item.to_dict()
         bt = item.blood_type.upper()
         donor_pledged = donor_counts.get(bt, 0)
-        total_available = max(item.units_available, donor_pledged)
-        d_dict["units_available"] = total_available
-        d_dict["status"] = "optimal" if total_available >= 15 else "moderate" if total_available >= 5 else "critical"
+        # Self-healing synchronization: eliminate orphaned stale units and sync with active pledges
+        if item.units_available != donor_pledged:
+            item.units_available = donor_pledged
+            item.status = "optimal" if donor_pledged >= 15 else "moderate" if donor_pledged >= 5 else "critical"
+            db.add(item)
+            has_changes = True
+
+        d_dict = item.to_dict()
+        d_dict["units_available"] = donor_pledged
+        d_dict["status"] = "optimal" if donor_pledged >= 15 else "moderate" if donor_pledged >= 5 else "critical"
         result.append(d_dict)
+
+    if has_changes:
+        db.commit()
 
     return result
 
