@@ -269,7 +269,7 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertEqual(patch_resp1.status_code, 200)
         self.assertTrue(patch_resp1.json()["is_primary"])
 
-        # Mark dev2 as primary as well (Multiple primary support)
+        # Mark dev2 as primary (dynamically switches primary to dev2 without changing one by one)
         patch_resp2 = self.client.patch(
             f"/api/sessions/{s2['id']}/primary",
             json={"is_primary": True},
@@ -278,14 +278,14 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertEqual(patch_resp2.status_code, 200)
         self.assertTrue(patch_resp2.json()["is_primary"])
 
-        # Refresh user from DB
+        # Refresh user from DB: dev1 dynamically un-primaried, dev2 is primary
         self.session.refresh(self.user)
-        self.assertTrue(self.user.is_device_primary(dev1))
+        self.assertFalse(self.user.is_device_primary(dev1))
         self.assertTrue(self.user.is_device_primary(dev2))
 
-        # Unmark dev1 from primary
+        # Unmark dev2 from primary
         unmark_resp = self.client.patch(
-            f"/api/sessions/{s1['id']}/primary",
+            f"/api/sessions/{s2['id']}/primary",
             json={"is_primary": False},
             headers={"Authorization": f"Bearer {token1}"}
         )
@@ -294,7 +294,7 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
 
         self.session.refresh(self.user)
         self.assertFalse(self.user.is_device_primary(dev1))
-        self.assertTrue(self.user.is_device_primary(dev2))
+        self.assertFalse(self.user.is_device_primary(dev2))
 
     def test_registration_rejects_duplicate_email(self):
         # Attempt to register with self.user.email which is verified
@@ -527,6 +527,87 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertEqual(subsequent_login.status_code, 200)
         self.assertFalse(subsequent_login.json().get("two_factor_required", False))
         self.assertIn("access_token", subsequent_login.json())
+
+    def test_primary_device_logout_and_relogin_without_otp(self):
+        primary_dev = f"dev-primary-{uuid.uuid4().hex[:8]}"
+        login_resp = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": primary_dev
+        })
+        self.assertEqual(login_resp.status_code, 200)
+        token = login_resp.json()["access_token"]
+        session_id = login_resp.json()["session_id"]
+
+        # Mark as primary device
+        patch_resp = self.client.patch(
+            f"/api/sessions/{session_id}/primary",
+            json={"is_primary": True},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+
+        # Voluntary logout
+        logout_resp = self.client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(logout_resp.status_code, 200)
+
+        # Log back in with same primary device: direct authentication with NO OTP required
+        relogin_resp = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": primary_dev
+        })
+        self.assertEqual(relogin_resp.status_code, 200)
+        self.assertFalse(relogin_resp.json().get("two_factor_required", False))
+        self.assertIn("access_token", relogin_resp.json())
+
+    def test_revoke_other_sessions_protects_primary_device(self):
+        current_dev = f"dev-curr-{uuid.uuid4().hex[:8]}"
+        primary_dev = f"dev-prim-{uuid.uuid4().hex[:8]}"
+        remote_dev = f"dev-rem-{uuid.uuid4().hex[:8]}"
+
+        # Login current
+        curr_login = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": current_dev
+        })
+        curr_token = curr_login.json()["access_token"]
+
+        # Login primary
+        prim_login = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": primary_dev
+        })
+        prim_token = prim_login.json()["access_token"]
+        prim_sid = prim_login.json()["session_id"]
+
+        # Mark primary
+        self.client.patch(
+            f"/api/sessions/{prim_sid}/primary",
+            json={"is_primary": True},
+            headers={"Authorization": f"Bearer {prim_token}"}
+        )
+
+        # Login non-primary remote
+        rem_login = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": remote_dev
+        })
+        rem_sid = rem_login.json()["session_id"]
+
+        # From current terminal: revoke others
+        revoke_resp = self.client.delete("/api/sessions/others", headers={"Authorization": f"Bearer {curr_token}"})
+        self.assertEqual(revoke_resp.status_code, 200)
+
+        # Verify: remote_dev is revoked, but primary_dev is STILL active!
+        self.session.expire_all()
+        rem_sess = self.session.query(UserSessionModel).filter(UserSessionModel.id == rem_sid).first()
+        prim_sess = self.session.query(UserSessionModel).filter(UserSessionModel.id == prim_sid).first()
+        self.assertEqual(rem_sess.status, "revoked")
+        self.assertEqual(prim_sess.status, "active")
 
 if __name__ == "__main__":
     unittest.main()

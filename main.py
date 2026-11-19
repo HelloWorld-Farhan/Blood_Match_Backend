@@ -1300,9 +1300,15 @@ def login_user(
             UserSessionModel.status == "revoked"
         ).first() is not None
 
+        # Check if current device is recognized/trusted or marked as primary
+        is_primary_device = user.is_device_primary(fp["device_id"])
+        is_trusted = bool(trusted_device is not None or is_primary_device)
+
         # Requirement 2: 2FA Enforcement Rule & Terminated Device Step-Up Challenge
-        # If 2FA is enabled OR device was remotely terminated -> strictly enforce 6-digit email OTP challenge
-        requires_step_up = bool(user.is_2fa_enabled) or bool(has_revoked_session and not trusted_device)
+        # If user explicitly turned on 2FA in Settings -> require 2FA
+        # Else if device was remotely terminated AND is neither trusted nor primary -> require step-up challenge
+        # Trusted devices and designated Primary workstations log in with password without requiring OTP
+        requires_step_up = bool(user.is_2fa_enabled) or bool(has_revoked_session and not is_trusted)
 
         if requires_step_up:
             # Invalidate prior unused 2FA tokens for this email
@@ -1472,7 +1478,8 @@ def logout_user(
     db: Session = Depends(get_db)
 ):
     """
-    Terminates active session and marks session revoked on explicit logout.
+    Voluntary signout from workstation. Marks session as logged_out (not revoked).
+    Preserves trusted device status if device was trusted or primary so user can log back in smoothly.
     """
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
@@ -1482,14 +1489,15 @@ def logout_user(
             sid = payload.get("sid")
             user_id = payload.get("sub")
             if sid and user_id:
+                now = datetime.utcnow()
                 db.query(UserSessionModel).filter(
                     UserSessionModel.id == sid,
                     UserSessionModel.user_id == user_id
-                ).update({"status": "revoked"})
+                ).update({"status": "logged_out", "last_active": now})
                 db.commit()
         except Exception as exc:
-            logger.warning(f"Session revocation on logout note: {exc}")
-    return {"status": "success", "message": "Logged out successfully. Workstation session revoked."}
+            logger.warning(f"Session logout note: {exc}")
+    return {"status": "success", "message": "Logged out successfully."}
 
 @app.post("/api/auth/unlock-account", tags=["Authentication"])
 def unlock_account(
@@ -2595,29 +2603,52 @@ def toggle_session_primary(
         ).update({"is_primary": payload.is_primary})
 
     if payload.is_primary:
-        current_user.add_primary_device(device_id)
-        trusted = db.query(TrustedDeviceModel).filter(
-            TrustedDeviceModel.user_id == current_user.id,
-            TrustedDeviceModel.device_id == device_id
-        ).first()
-        if trusted:
-            trusted.is_primary = True
-        else:
-            db.add(TrustedDeviceModel(
-                user_id=current_user.id,
-                device_id=device_id,
-                device_name=session_record.device_name,
-                browser=session_record.browser,
-                os=session_record.os,
-                ip_address=session_record.ip_address,
-                is_primary=True
-            ))
+        # Sole Primary Workstation: unmark other devices and set this device
+        clean_dev = str(device_id).strip() if device_id else ""
+        current_user.primary_device_ids = json.dumps([clean_dev] if clean_dev else [])
+
+        # Dynamically synchronize is_primary across all user sessions
+        db.query(UserSessionModel).filter(
+            UserSessionModel.user_id == current_user.id
+        ).update({"is_primary": False})
+
+        if clean_dev:
+            db.query(UserSessionModel).filter(
+                UserSessionModel.user_id == current_user.id,
+                UserSessionModel.device_id == clean_dev
+            ).update({"is_primary": True})
+
+            db.query(TrustedDeviceModel).filter(
+                TrustedDeviceModel.user_id == current_user.id
+            ).update({"is_primary": False})
+
+            trusted = db.query(TrustedDeviceModel).filter(
+                TrustedDeviceModel.user_id == current_user.id,
+                TrustedDeviceModel.device_id == clean_dev
+            ).first()
+            if trusted:
+                trusted.is_primary = True
+            else:
+                db.add(TrustedDeviceModel(
+                    user_id=current_user.id,
+                    device_id=clean_dev,
+                    device_name=session_record.device_name,
+                    browser=session_record.browser,
+                    os=session_record.os,
+                    ip_address=session_record.ip_address,
+                    is_primary=True
+                ))
     else:
         current_user.remove_primary_device(device_id)
-        db.query(TrustedDeviceModel).filter(
-            TrustedDeviceModel.user_id == current_user.id,
-            TrustedDeviceModel.device_id == device_id
-        ).update({"is_primary": False})
+        if device_id:
+            db.query(UserSessionModel).filter(
+                UserSessionModel.user_id == current_user.id,
+                UserSessionModel.device_id == device_id
+            ).update({"is_primary": False})
+            db.query(TrustedDeviceModel).filter(
+                TrustedDeviceModel.user_id == current_user.id,
+                TrustedDeviceModel.device_id == device_id
+            ).update({"is_primary": False})
 
     db.commit()
 
@@ -2640,10 +2671,13 @@ def revoke_other_sessions(
     db: Session = Depends(get_db)
 ):
     """
-    Requirement 3: Invalidate all active sessions except the current workstation.
-    Also revokes device trust for those remote devices so subsequent logins require OTP.
+    Terminates all active remote sessions EXCEPT:
+    1. The current caller's workstation session.
+    2. Any device designated as PRIMARY (primary devices can only be terminated individually).
     """
     current_sid = getattr(current_user, "_current_session_id", None)
+    primary_device_ids = set(current_user.get_primary_device_ids())
+
     query = db.query(UserSessionModel).filter(
         UserSessionModel.user_id == current_user.id,
         UserSessionModel.status == "active"
@@ -2652,22 +2686,27 @@ def revoke_other_sessions(
         query = query.filter(UserSessionModel.id != current_sid)
 
     other_sessions = query.all()
-    device_ids_to_untrust = [s.device_id for s in other_sessions if s.device_id]
+    # Filter strictly for non-primary sessions
+    sessions_to_revoke = [
+        s for s in other_sessions
+        if not (s.is_primary or (s.device_id and str(s.device_id).strip() in primary_device_ids))
+    ]
 
     revoked_count = 0
     now = datetime.utcnow()
-    for s in other_sessions:
+    device_ids_to_untrust = []
+    for s in sessions_to_revoke:
         s.status = "revoked"
         s.last_active = now
         revoked_count += 1
+        if s.device_id and s.device_id not in primary_device_ids:
+            device_ids_to_untrust.append(s.device_id)
 
     if device_ids_to_untrust:
         db.query(TrustedDeviceModel).filter(
             TrustedDeviceModel.user_id == current_user.id,
             TrustedDeviceModel.device_id.in_(device_ids_to_untrust)
         ).delete(synchronize_session=False)
-        for dev_id in device_ids_to_untrust:
-            current_user.remove_primary_device(dev_id)
 
     db.commit()
 
@@ -2684,7 +2723,7 @@ def revoke_other_sessions(
         logger.warning(f"Failed to sync DB to R2 on revoke_others: {sync_err}")
 
     return {
-        "message": "All other active device sessions have been terminated and device trust revoked.",
+        "message": "All non-primary remote active device sessions have been terminated.",
         "terminated_count": revoked_count
     }
 

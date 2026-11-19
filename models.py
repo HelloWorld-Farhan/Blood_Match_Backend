@@ -227,6 +227,8 @@ class UserSessionModel(Base):
             "is_primary": bool(self.is_primary if is_primary_override is None else is_primary_override),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_active": self.last_active.isoformat() if self.last_active else None,
+            "login_time": self.created_at.isoformat() if self.created_at else None,
+            "ended_time": self.last_active.isoformat() if self.status in ("revoked", "logged_out") else None,
             "is_current": bool(current_session_id and self.id == current_session_id)
         }
 
