@@ -266,5 +266,76 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertFalse(self.user.is_device_primary(dev1))
         self.assertTrue(self.user.is_device_primary(dev2))
 
+    def test_registration_rejects_duplicate_email(self):
+        # Attempt to register with self.user.email which is verified
+        resp = self.client.post("/api/auth/register", json={
+            "email": self.test_email,
+            "full_name": "Duplicate Tester",
+            "phone": "+91 99999 00000",
+            "password": "Password99!#"
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("already exists", resp.json()["detail"].lower())
+
+    def test_registration_rejects_duplicate_phone(self):
+        # Attempt to register with self.primary_phone which belongs to self.user
+        new_email = f"other.clinician.{uuid.uuid4().hex[:6]}@hospital.org"
+        resp = self.client.post("/api/auth/register", json={
+            "email": new_email,
+            "full_name": "Another Clinician",
+            "phone": self.primary_phone,
+            "password": "Password99!#"
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("mobile number is already registered", resp.json()["detail"].lower())
+
+    def test_login_by_email_and_by_phone_open_identical_account(self):
+        # 1. Login with email
+        resp_email = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password,
+            "device_id": "device-email-login"
+        })
+        self.assertEqual(resp_email.status_code, 200)
+        data_email = resp_email.json()
+
+        # 2. Login with phone (omitting country code)
+        resp_phone = self.client.post("/api/auth/login", json={
+            "identifier": "9876543210",
+            "password": self.password,
+            "device_id": "device-phone-login"
+        })
+        self.assertEqual(resp_phone.status_code, 200)
+        data_phone = resp_phone.json()
+
+        # Both MUST authenticate as the identical user
+        self.assertEqual(data_email["user"]["id"], data_phone["user"]["id"])
+        self.assertEqual(data_email["user"]["email"], data_phone["user"]["email"])
+        self.assertEqual(data_email["user"]["phone"], data_phone["user"]["phone"])
+        self.assertEqual(data_email["user"]["full_name"], data_phone["user"]["full_name"])
+
+    def test_profile_update_preserves_immutable_phone(self):
+        login_resp = self.client.post("/api/auth/login", json={
+            "identifier": self.test_email,
+            "password": self.password
+        })
+        token = login_resp.json()["access_token"]
+
+        # Attempt to update name and change phone
+        update_resp = self.client.put(
+            "/api/profile",
+            json={
+                "full_name": "Dr. Farhan Khalid Updated",
+                "phone": "+1 999 888 7777"
+            },
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        self.assertEqual(update_resp.status_code, 200)
+
+        # Refresh user from DB - name should update, phone must remain unchanged
+        self.session.refresh(self.user)
+        self.assertEqual(self.user.full_name, "Dr. Farhan Khalid Updated")
+        self.assertEqual(self.user.phone, self.primary_phone)
+
 if __name__ == "__main__":
     unittest.main()

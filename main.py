@@ -581,7 +581,45 @@ def register_user(
             detail=pw_error
         )
 
-    # Check for existing account (Local DB or R2 permanent mirror)
+    # 2. Enforce Phone Validation & Uniqueness
+    phone_clean = payload.phone.strip() if payload.phone else ""
+    if not phone_clean:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A valid mobile phone number is required to register a clinical account."
+        )
+
+    phone_digits = extract_phone_digits(phone_clean)
+    if len(phone_digits) < 7 or len(phone_digits) > 15:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mobile phone number must contain between 7 and 15 digits."
+        )
+
+    # Check across all users to guarantee mobile number uniqueness
+    all_users = db.query(UserModel).all()
+    for u in all_users:
+        if u.email != email_clean:
+            phones_to_check = []
+            if u.phone:
+                phones_to_check.append(u.phone)
+            phones_to_check.extend(u.get_saved_phones())
+            for p in phones_to_check:
+                if match_phone_numbers(phone_clean, p):
+                    if u.is_verified:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This mobile number is already registered with another account. Each account must have a unique phone number."
+                        )
+                    else:
+                        # Clean up previous unverified abandoned registration under different email
+                        db.query(OtpTokenModel).filter(OtpTokenModel.user_id == u.id).delete()
+                        db.query(UserSessionModel).filter(UserSessionModel.user_id == u.id).delete()
+                        db.delete(u)
+                        db.flush()
+                        break
+
+    # 3. Check for existing account (Local DB or R2 permanent mirror)
     existing_user = get_user_by_email_or_r2(email_clean, db)
     if existing_user:
         if existing_user.is_verified:
@@ -593,8 +631,7 @@ def register_user(
             # User previously attempted registration but is pending verification.
             # Seamlessly refresh their registration, issue a fresh OTP, and dispatch immediately!
             existing_user.full_name = payload.full_name.strip()
-            if payload.phone:
-                existing_user.phone = payload.phone.strip()
+            existing_user.phone = phone_clean
             existing_user.hashed_password = hash_password(payload.password)
             db.flush()
 
@@ -630,14 +667,14 @@ def register_user(
                 "user": existing_user.to_dict()
             }
 
-    # 2. Hash Password with Bcrypt + Salt
+    # 4. Hash Password with Bcrypt + Salt
     hashed_pw = hash_password(payload.password)
 
-    # 3. Create User with is_verified=False (Activation Boundary)
+    # 5. Create User with is_verified=False (Activation Boundary)
     new_user = UserModel(
         full_name=payload.full_name.strip(),
         email=email_clean,
-        phone=payload.phone.strip() if payload.phone else None,
+        phone=phone_clean,
         hashed_password=hashed_pw,
         is_verified=False,
         failed_login_attempts=0
@@ -751,6 +788,9 @@ def verify_otp(
     otp_record.is_used = True
     user.is_verified = True
     user.verified_at = datetime.utcnow()
+    if user.phone:
+        user.add_saved_phone(user.phone)
+    user.add_verified_email(user.email)
 
     # Create active primary session for the verified user with error containment
     session_id = None
@@ -3058,8 +3098,8 @@ def update_user_profile(
     db: Session = Depends(get_db)
 ):
     """
-    Updates authenticated clinician's name and phone number.
-    Email and unique ID are system-bound and strictly immutable.
+    Updates authenticated clinician's full name.
+    Email, verified mobile phone, and unique ID are system-bound and strictly immutable.
     Syncs across database and Cloudflare R2 backup.
     """
     cleaned_name = payload.full_name.strip()
@@ -3070,9 +3110,7 @@ def update_user_profile(
         )
 
     current_user.full_name = cleaned_name
-    if payload.phone is not None:
-        current_user.phone = payload.phone.strip()
-        current_user.add_saved_phone(payload.phone.strip())
+    # Verified mobile phone is strictly immutable and cannot be changed in settings
 
     # Also update ClinicianProfileModel if exists
     profile = db.query(ClinicianProfileModel).filter(
