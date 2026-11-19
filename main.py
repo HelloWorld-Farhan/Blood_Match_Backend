@@ -880,6 +880,139 @@ def resend_otp(
 # SECURE LOGIN & BRUTE-FORCE LOCKOUT
 # ==========================================
 
+def extract_phone_digits(phone_str: str) -> str:
+    """Extract digits and normalize phone numbers for safe matching."""
+    if not phone_str:
+        return ""
+    return re.sub(r'\D', '', str(phone_str))
+
+def match_phone_numbers(phone_a: str, phone_b: str) -> bool:
+    """
+    Checks if two phone representations match, whether country code was provided or omitted.
+    E.g.: '9876543210' matches '+91 98765 43210' or '09876543210' or '919876543210'.
+    """
+    da = extract_phone_digits(phone_a)
+    db = extract_phone_digits(phone_b)
+    if not da or not db:
+        return False
+    if da == db:
+        return True
+    
+    # Strip leading zeros
+    da_clean = da.lstrip('0')
+    db_clean = db.lstrip('0')
+    if da_clean == db_clean:
+        return True
+        
+    # Suffix matching: one might include country code while the other does not
+    # E.g., '919876543210' (len 12) ends with '9876543210' (len 10)
+    min_len = min(len(da_clean), len(db_clean))
+    if min_len >= 7:
+        if da_clean.endswith(db_clean) or db_clean.endswith(da_clean):
+            return True
+    return False
+
+def find_user_by_credential(credential: str, db: Session) -> Optional[UserModel]:
+    if not credential:
+        return None
+    raw = credential.strip()
+    if "@" in raw:
+        email_clean = raw.lower()
+        user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+        if not user:
+            r2_record = get_user_auth_record_r2(email_clean)
+            if r2_record and r2_record.get("hashed_password"):
+                user = UserModel(
+                    id=r2_record.get("id") or str(uuid.uuid4()),
+                    full_name=r2_record.get("full_name") or "Clinician",
+                    email=email_clean,
+                    phone=r2_record.get("phone"),
+                    hashed_password=r2_record.get("hashed_password"),
+                    is_verified=bool(r2_record.get("is_verified", True)),
+                    is_2fa_enabled=bool(r2_record.get("is_2fa_enabled", False)),
+                    photo_url=r2_record.get("photo_url"),
+                    saved_phones=json.dumps(r2_record.get("saved_phones") or []),
+                    verified_emails=json.dumps(r2_record.get("verified_emails") or [email_clean])
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+        return user
+    else:
+        # Search by phone number across all users
+        input_digits = extract_phone_digits(raw)
+        if len(input_digits) < 7:
+            return None
+        
+        users = db.query(UserModel).all()
+        for u in users:
+            phones_to_check = []
+            if u.phone:
+                phones_to_check.append(u.phone)
+            phones_to_check.extend(u.get_saved_phones())
+            
+            for p in phones_to_check:
+                if match_phone_numbers(raw, p):
+                    return u
+        return None
+
+@app.get("/api/auth/phone-lookup", tags=["Authentication"])
+def lookup_phone_country_code(
+    phone: str = Query(..., min_length=3),
+    db: Session = Depends(get_db)
+):
+    """
+    Checks if the entered phone number matches an existing user in the database.
+    If matched, extracts and returns the registered country code and dial code.
+    If not matched in DB, predicts the country code based on number format (e.g. 10 digits for India).
+    """
+    raw_phone = phone.strip()
+    user = find_user_by_credential(raw_phone, db)
+    
+    if user and user.phone:
+        matched_phone = user.phone.strip()
+        dial_code = "+91"
+        country_code = "IN"
+        if matched_phone.startswith("+"):
+            parts = matched_phone.split()
+            dial_code = parts[0]
+            KNOWN_DIAL_CODES = {
+                "+91": "IN", "+1": "US", "+44": "GB", "+971": "AE", "+61": "AU",
+                "+966": "SA", "+49": "DE", "+65": "SG", "+92": "PK", "+880": "BD"
+            }
+            country_code = KNOWN_DIAL_CODES.get(dial_code, "IN")
+            
+        return {
+            "found": True,
+            "dial_code": dial_code,
+            "country_code": country_code,
+            "formatted_phone": matched_phone,
+            "user_name": user.full_name.split()[0] if user.full_name else "Clinician"
+        }
+    
+    digits = extract_phone_digits(raw_phone)
+    if len(digits) == 10 and digits[0] in ['6', '7', '8', '9']:
+        return {
+            "found": False,
+            "dial_code": "+91",
+            "country_code": "IN",
+            "formatted_phone": None
+        }
+    elif len(digits) == 10 and digits[0] in ['2', '3', '4', '5']:
+        return {
+            "found": False,
+            "dial_code": "+1",
+            "country_code": "US",
+            "formatted_phone": None
+        }
+    
+    return {
+        "found": False,
+        "dial_code": "+91",
+        "country_code": "IN",
+        "formatted_phone": None
+    }
+
 @app.post("/api/auth/login", tags=["Authentication"])
 def login_user(
     payload: UserLoginRequest,
@@ -889,40 +1022,31 @@ def login_user(
 ):
     """
     Secure login with brute-force defense and multi-device session registry:
-    1. Checks if account is locked (locked_until > now) -> Returns HTTP 423
-    2. Enforces 5-second cooldown between password submissions -> Returns HTTP 429
-    3. Verifies credentials with bcrypt
-    4. On failed attempt:
+    1. Supports login by email OR mobile phone number (with or without country code)
+    2. Checks if account is locked (locked_until > now) -> Returns HTTP 423
+    3. Enforces 5-second cooldown between password submissions -> Returns HTTP 429
+    4. Verifies credentials with bcrypt
+    5. On failed attempt:
        - 1st & 2nd attempt: Returns HTTP 401 with remaining attempts warning
        - 3rd attempt: Locks account for 1 year, resets counter, dispatches emergency 6-digit unlock code via email, returns HTTP 423
-    5. On success: Clears failed attempts, registers device session in user_sessions, mints JWT token with sid claim
+    6. On success: Clears failed attempts, registers device session in user_sessions, mints JWT token with sid claim
     """
-    email_clean = payload.email.strip().lower()
-    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    raw_credential = (payload.identifier or payload.email or payload.phone or "").strip()
+    if not raw_credential:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address or mobile phone number is required."
+        )
+
+    user = find_user_by_credential(raw_credential, db)
 
     if not user:
-        # Check Cloudflare R2 permanent disaster-proof auth record
-        r2_record = get_user_auth_record_r2(email_clean)
-        if r2_record and r2_record.get("hashed_password"):
-            user = UserModel(
-                id=r2_record.get("id") or str(uuid.uuid4()),
-                full_name=r2_record.get("full_name") or "Clinician",
-                email=email_clean,
-                phone=r2_record.get("phone"),
-                hashed_password=r2_record.get("hashed_password"),
-                is_verified=bool(r2_record.get("is_verified", True)),
-                is_2fa_enabled=bool(r2_record.get("is_2fa_enabled", False)),
-                photo_url=r2_record.get("photo_url")
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            logger.info(f"On-demand login reconciliation: restored {email_clean} from R2.")
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email address or password."
-            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email, phone number, or password."
+        )
+
+    email_clean = user.email.strip().lower()
 
     # Activation Boundary: Unverified accounts cannot log in until OTP is verified
     if not user.is_verified:
@@ -1068,7 +1192,7 @@ def login_user(
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid email address or password. Warning: {remaining_attempts} attempt{'s' if remaining_attempts > 1 else ''} remaining before account lockout."
+            detail=f"Invalid credentials or password. Warning: {remaining_attempts} attempt{'s' if remaining_attempts > 1 else ''} remaining before account lockout."
         )
 
     # 3rd consecutive failed attempt: Trigger Immediate Lockout & Emergency Code Dispatch

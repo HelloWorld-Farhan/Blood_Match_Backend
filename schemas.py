@@ -76,7 +76,9 @@ class OtpResendRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=120)
 
 class UserLoginRequest(BaseModel):
-    email: str = Field(..., min_length=5, max_length=120)
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    identifier: Optional[str] = None
     password: str = Field(..., min_length=1)
     device_id: Optional[str] = None
     remember_device: bool = False
