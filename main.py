@@ -1214,6 +1214,25 @@ def lookup_credential(
     """
     return resolve_credential_lookup(identifier, db)
 
+def ensure_user_avatar_hydrated(user: Optional[UserModel], db: Session) -> None:
+    """
+    Ensures the user's avatar is hydrated into photo_url with zero latency.
+    If photo_url is missing or a local relative path, fetches direct bytes from Cloudflare R2
+    and stores as a fast, resilient base64 data URL.
+    """
+    if not user:
+        return
+    if not user.photo_url or user.photo_url.startswith("/"):
+        try:
+            res = get_user_avatar_bytes(user.email)
+            if res:
+                img_bytes, mime = res
+                b64_str = base64.b64encode(img_bytes).decode("utf-8")
+                user.photo_url = f"data:{mime};base64,{b64_str}"
+                db.commit()
+        except Exception as r2_err:
+            logger.warning(f"Could not hydrate avatar from R2 for {user.email}: {r2_err}")
+
 @app.post("/api/auth/login", tags=["Authentication"])
 def login_user(
     payload: UserLoginRequest,
@@ -1410,6 +1429,9 @@ def login_user(
                 location=fp["location"],
                 timestamp=now.strftime("%Y-%m-%d %H:%M:%S UTC")
             )
+
+        # Ensure avatar is hydrated with zero latency
+        ensure_user_avatar_hydrated(user, db)
 
         return {
             "access_token": token,
@@ -1717,6 +1739,9 @@ def verify_2fa_login(
         except Exception as alert_err:
             logger.warning(f"Could not dispatch 2FA session alert email: {alert_err}")
 
+    # Ensure avatar is hydrated with zero latency
+    ensure_user_avatar_hydrated(user, db)
+
     return {
         "message": "Two-factor authentication verified successfully.",
         "access_token": token,
@@ -1882,12 +1907,14 @@ def remove_trusted_device(
 
 @app.get("/api/auth/me", tags=["Authentication"])
 def get_current_user_profile(
-    verified_user: UserModel = Depends(get_current_verified_user)
+    verified_user: UserModel = Depends(get_current_verified_user),
+    db: Session = Depends(get_db)
 ):
     """
     Protected Endpoint Boundary:
     Strictly restricted to users who have completed 6-digit OTP email verification (is_verified = True).
     """
+    ensure_user_avatar_hydrated(verified_user, db)
     return {
         "status": "authenticated",
         "access_level": "verified_clinician",
@@ -3835,15 +3862,23 @@ async def upload_user_avatar(
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Storage upload failed: {exc}")
 
-    current_user.photo_url = upload_meta["public_url"]
+    # Generate immediate base64 data URL for instant zero-latency rendering across all devices
+    b64_str = base64.b64encode(processed_bytes).decode("utf-8")
+    data_url = f"data:{mime_type};base64,{b64_str}"
+
+    public_url = upload_meta.get("public_url")
+    effective_url = public_url if (public_url and (public_url.startswith("http://") or public_url.startswith("https://"))) else data_url
+
+    current_user.photo_url = effective_url
     db.commit()
 
     # Continuous disaster recovery master mirror update
     sync_user_state_to_r2(current_user.email, db)
 
     return {
-        "photoUrl": upload_meta["public_url"],
-        "photo_url": upload_meta["public_url"],
+        "photoUrl": effective_url,
+        "photo_url": effective_url,
+        "dataUrl": data_url,
         "s3_key": upload_meta["s3_key"],
         "size_bytes": upload_meta["size_bytes"],
         "content_type": upload_meta["content_type"],
