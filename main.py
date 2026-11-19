@@ -2013,18 +2013,27 @@ def request_password_reset(
 ):
     """
     Step 1: Request Password Reset
-    - Submits email address
+    - Submits email address or mobile phone number
+    - Resolves linked clinical account
     - Enforces 30-second resend cooldown on reset tokens
     - Generates 6-digit cryptographic OTP (valid for 10 minutes)
-    - Dispatches password reset email
+    - Dispatches password reset email to linked account email
     """
-    email_clean = payload.email.strip().lower()
-    user = get_user_by_email_or_r2(email_clean, db)
+    raw_cred = (payload.identifier or payload.email or payload.phone or "").strip()
+    if not raw_cred:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address or mobile phone number is required."
+        )
+
+    user = find_user_by_credential(raw_cred, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No account registered with this email address."
+            detail="No account found registered with this email address or mobile number."
         )
+
+    email_clean = user.email.strip().lower()
 
     # Enforce 30-second cooldown rate limit
     last_reset_otp = (
@@ -2069,8 +2078,23 @@ def request_password_reset(
         otp_code=reset_otp
     )
 
+    # Mask email for safe disclosure: e.g. "f***8@gmail.com"
+    email_parts = email_clean.split("@")
+    if len(email_parts) == 2:
+        name_part, domain_part = email_parts
+        if len(name_part) <= 2:
+            masked_name = name_part[0] + "***"
+        else:
+            masked_name = name_part[0] + "***" + name_part[-1]
+        masked_email = f"{masked_name}@{domain_part}"
+    else:
+        masked_email = email_clean
+
     return {
-        "message": "A 6-digit password reset verification code has been dispatched to your email.",
+        "message": f"A 6-digit password reset verification code has been dispatched to {masked_email}.",
+        "email": email_clean,
+        "masked_email": masked_email,
+        "user_name": user.full_name or "Clinician",
         "cooldown_seconds": 30
     }
 
@@ -2085,15 +2109,22 @@ def verify_password_reset_otp(
     - Invalidates OTP upon match
     - Mints temporary 15-minute reset session token
     """
-    email_clean = payload.email.strip().lower()
-    otp_code_clean = payload.otp_code.strip()
+    raw_cred = (payload.identifier or payload.email or payload.phone or "").strip()
+    if not raw_cred:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address or mobile phone number is required."
+        )
 
-    user = get_user_by_email_or_r2(email_clean, db)
+    user = find_user_by_credential(raw_cred, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User account not found."
         )
+
+    email_clean = user.email.strip().lower()
+    otp_code_clean = payload.otp_code.strip()
 
     # Query latest active reset token
     token_record = (
@@ -2139,7 +2170,8 @@ def verify_password_reset_otp(
 
     return {
         "message": "Verification code verified successfully. You may now set your new password.",
-        "reset_token": reset_token
+        "reset_token": reset_token,
+        "email": email_clean
     }
 
 @app.post("/api/auth/password-reset/confirm", tags=["Password Reset"])
@@ -2156,7 +2188,21 @@ def confirm_password_reset(
     4. Requirement 3: Automatic Account Unlock (clears locked_until, resets failed attempts)
     5. Requirement 4: Security Notification Email (sends audit confirmation with timestamp, device/user-agent, and IP)
     """
-    email_clean = payload.email.strip().lower()
+    raw_cred = (payload.identifier or payload.email or payload.phone or "").strip()
+    if not raw_cred:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address or mobile phone number is required."
+        )
+
+    user = find_user_by_credential(raw_cred, db)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account not found."
+        )
+
+    email_clean = user.email.strip().lower()
 
     # 1. Validate reset session token
     token_to_verify = payload.reset_token or payload.reset_session_token

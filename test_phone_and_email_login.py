@@ -359,5 +359,50 @@ class TestPhoneAndEmailLogin(unittest.TestCase):
         self.assertEqual(self.user.full_name, "Dr. Farhan Khalid Updated")
         self.assertEqual(self.user.phone, self.primary_phone)
 
+    def test_password_reset_by_phone_number_dispatches_to_linked_email(self):
+        # 1. User submits only their 10-digit mobile number for password reset
+        req_resp = self.client.post("/api/auth/password-reset/request", json={
+            "identifier": "9876543210"
+        })
+        self.assertEqual(req_resp.status_code, 200)
+        req_data = req_resp.json()
+        self.assertEqual(req_data["email"], self.test_email)
+        self.assertIn("@hospital.org", req_data["masked_email"])
+
+        # 2. Retrieve generated reset OTP from database
+        otp_record = (
+            self.session.query(OtpTokenModel)
+            .filter(OtpTokenModel.email == self.test_email, OtpTokenModel.token_type == "password_reset", OtpTokenModel.is_used == False)
+            .order_by(OtpTokenModel.created_at.desc())
+            .first()
+        )
+        self.assertIsNotNone(otp_record)
+
+        # 3. Verify OTP using the phone number
+        verify_resp = self.client.post("/api/auth/password-reset/verify", json={
+            "identifier": "9876543210",
+            "otp_code": otp_record.otp_code
+        })
+        self.assertEqual(verify_resp.status_code, 200)
+        reset_token = verify_resp.json()["reset_token"]
+        self.assertTrue(len(reset_token) > 20)
+
+        # 4. Confirm new password using the phone number
+        new_pwd = "BrandNewPassword99!#"
+        confirm_resp = self.client.post("/api/auth/password-reset/confirm", json={
+            "identifier": "9876543210",
+            "reset_token": reset_token,
+            "new_password": new_pwd
+        })
+        self.assertEqual(confirm_resp.status_code, 200)
+
+        # 5. Verify user can now log in using phone number and new password
+        login_resp = self.client.post("/api/auth/login", json={
+            "identifier": "9876543210",
+            "password": new_pwd
+        })
+        self.assertEqual(login_resp.status_code, 200)
+        self.assertEqual(login_resp.json()["user"]["email"], self.test_email)
+
 if __name__ == "__main__":
     unittest.main()

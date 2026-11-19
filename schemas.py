@@ -104,14 +104,20 @@ class AccountUnlockRequest(BaseModel):
 
 # Multi-Step Password Reset Schemas
 class PasswordResetRequest(BaseModel):
-    email: str = Field(..., min_length=5, max_length=120)
+    email: Optional[str] = None
+    identifier: Optional[str] = None
+    phone: Optional[str] = None
 
 class PasswordResetVerifyRequest(BaseModel):
-    email: str = Field(..., min_length=5, max_length=120)
+    email: Optional[str] = None
+    identifier: Optional[str] = None
+    phone: Optional[str] = None
     otp_code: str = Field(..., min_length=6, max_length=6)
 
 class PasswordResetConfirmRequest(BaseModel):
-    email: str = Field(..., min_length=5, max_length=120)
+    email: Optional[str] = None
+    identifier: Optional[str] = None
+    phone: Optional[str] = None
     reset_token: Optional[str] = None
     reset_session_token: Optional[str] = None
     new_password: str = Field(..., min_length=1, max_length=128)
