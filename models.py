@@ -330,6 +330,7 @@ class DonorModel(Base):
     units_donated_total = Column(Integer, nullable=True, default=0)
     last_donation_date = Column(String(30), nullable=True)
     is_available = Column(Boolean, default=True)
+    last_alert_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -355,6 +356,8 @@ class DonorModel(Base):
             "is_available": self.is_available,
             "isAvailable": self.is_available,
             "available": self.is_available,
+            "last_alert_sent_at": self.last_alert_sent_at.isoformat() if self.last_alert_sent_at else None,
+            "lastAlertSentAt": self.last_alert_sent_at.isoformat() if self.last_alert_sent_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "registeredAt": self.created_at.isoformat() if self.created_at else None
         }

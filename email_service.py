@@ -3,6 +3,7 @@ import re
 import smtplib
 import logging
 import base64
+from datetime import datetime
 from typing import Optional, List
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -1160,6 +1161,137 @@ BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
         return True
 
     return _dispatch_smtp(subject, donor_email, text_body, html_body)
+
+def send_emergency_dispatch_confirmation_to_clinician(
+    clinician_email: str,
+    clinician_name: str,
+    donor_name: str,
+    donor_email: str,
+    donor_blood_type: str,
+    patient_name: str,
+    hospital: str,
+    contact_number: str,
+    custom_message: Optional[str] = None
+) -> bool:
+    """Dispatches formal confirmation receipt to the attending clinician acknowledging voluntary donor mobilization."""
+    clean_clinician = sanitize_recipient_name(clinician_name)
+    clean_donor = sanitize_recipient_name(donor_name)
+    clean_patient = sanitize_recipient_name(patient_name) if patient_name else "Emergency Transfusion Case"
+    subject = f"✅ Emergency Alert Dispatched to Voluntary Donor: {clean_donor} ({donor_blood_type})"
+
+    text_body = f"""EMERGENCY ALERT TRANSMISSION CONFIRMATION
+
+Hello {clean_clinician},
+
+This receipt confirms that your emergency blood mobilization alert has been successfully transmitted to voluntary donor {clean_donor}.
+
+CASE & DISPATCH DETAILS:
+- Target Voluntary Donor: {clean_donor} ({donor_email})
+- Blood Group Requested: {donor_blood_type}
+- Patient / Case Name: {clean_patient}
+- Facility / Location: {hospital}
+- Direct Call-Back Hotline: {contact_number}
+- Urgent Message Sent: {custom_message or 'Immediate voluntary blood donation requested.'}
+- Dispatch Timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
+- 24-Hour Donor Cooldown: ACTIVE (Repeat alert dispatches to this donor are locked for 24 hours across all devices to prevent alert fatigue)
+
+BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
+"""
+
+    html_body = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Emergency Alert Transmission Confirmation</title>
+      <style>
+        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }}
+        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }}
+        .card {{ max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1.5px solid #28A745; border-radius: 20px; overflow: hidden; }}
+        .header {{ padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; display: flex; align-items: center; justify-content: space-between; }}
+        .brand-pill {{ display: inline-block; padding: 4px 10px; background: #E8F8EE; border: 1px solid #B8E8C8; border-radius: 100px; font-size: 11px; font-weight: 800; color: #1E7E34; text-transform: uppercase; }}
+        .content {{ padding: 32px; }}
+        .title {{ font-size: 22px; font-weight: 900; color: #155724; margin: 0 0 10px 0; }}
+        .greeting {{ font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }}
+        .paragraph {{ font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }}
+        .audit-card {{ background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }}
+        .notice-box {{ background: #F4FBF7; border-left: 3px solid #28A745; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #2E5A3D; line-height: 1.5; margin-top: 20px; }}
+        .footer {{ border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+      </style>
+    </head>
+    <body>
+      <div class="wrapper">
+        <div class="card">
+          <div class="header">
+            <span class="brand-pill">Alert Transmitted ✓</span>
+          </div>
+          <div class="content">
+            <h1 class="title">Dispatch Confirmation</h1>
+            <div class="greeting">Hello, {clean_clinician}</div>
+            <p class="paragraph">Your emergency blood alert has been successfully transmitted to voluntary donor <strong>{clean_donor}</strong> for compatible <strong>Group {donor_blood_type}</strong> blood.</p>
+            <div class="audit-card">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Voluntary Donor</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{clean_donor} ({donor_email})</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Blood Group</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: 900; text-align: right;">Group {donor_blood_type}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Patient / Case</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{clean_patient}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Facility / Location</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{hospital}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Direct Hotline</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">{contact_number}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500;">Cooldown Status</td>
+                  <td style="padding: 8px 0; font-size: 12px; color: #1E7E34; font-weight: 700; text-align: right;">24h Cooldown Active</td>
+                </tr>
+              </table>
+            </div>
+            <div class="notice-box">
+              <strong>Clinical Urgency Note Sent:</strong> {custom_message or 'Immediate voluntary blood donation requested.'}
+              <div style="margin-top: 8px; font-size: 11px; color: #667085;">
+                To protect enrolled donors from excessive alerts, follow-up notifications to this donor are locked for 24 hours across all devices.
+              </div>
+            </div>
+          </div>
+          <div class="footer">
+            BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
+            <div style="font-size: 10px; color: #A0AEC0; margin-top: 6px;">Dispatch Ref: #{donor_email[:4]}-CONFIRM</div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    gas_payload = {
+        "to": clinician_email,
+        "name": clean_clinician,
+        "donor_name": clean_donor,
+        "donor_email": donor_email,
+        "blood_type": donor_blood_type,
+        "patient_name": clean_patient,
+        "hospital": hospital,
+        "contact_number": contact_number,
+        "custom_message": custom_message or "",
+        "action": "emergency_donor_dispatch_confirmation",
+        "html_body": html_body,
+        "subject": subject
+    }
+    if _dispatch_google_apps_script("emergency_donor_dispatch_confirmation", gas_payload):
+        return True
+
+    return _dispatch_smtp(subject, clinician_email, text_body, html_body)
 
 def send_clinician_donor_roster_email(
     clinician_email: str,

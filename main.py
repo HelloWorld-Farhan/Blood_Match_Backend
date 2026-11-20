@@ -100,6 +100,7 @@ from email_service import (
     send_account_deletion_otp_email,
     send_account_deleted_confirmation_email,
     send_emergency_donor_dispatch_email,
+    send_emergency_dispatch_confirmation_to_clinician,
     send_clinician_donor_roster_email,
     send_transfusion_fulfilled_emails,
     send_live_tracking_match_email
@@ -3497,30 +3498,99 @@ def dispatch_emergency_donor_alert(
     db: Session = Depends(get_db)
 ):
     """
-    Dispatches real-time emergency mobilization email directly to a compatible voluntary donor.
+    Dispatches real-time emergency mobilization email directly to a compatible voluntary donor
+    and transmits an official dispatch confirmation receipt to the attending clinician.
+    Enforces a strict 24-hour rate limit cooldown per voluntary donor across DB & all connected devices.
     """
+    # 1. Lookup Donor
+    donor = None
+    if payload.donor_id:
+        donor = db.query(DonorModel).filter(DonorModel.id == payload.donor_id).first()
+    if not donor and payload.donor_email:
+        donor = db.query(DonorModel).filter(func.lower(DonorModel.email) == payload.donor_email.strip().lower()).first()
+
+    # 2. Enforce 24-Hour Cooldown
+    now_utc = datetime.utcnow()
+    if donor and donor.last_alert_sent_at:
+        elapsed = (now_utc - donor.last_alert_sent_at).total_seconds()
+        if elapsed < 86400:  # 24 hours
+            rem_sec = int(86400 - elapsed)
+            rem_h = rem_sec // 3600
+            rem_m = (rem_sec % 3600) // 60
+            cooldown_display = f"{rem_h}h {rem_m}m" if rem_h > 0 else f"{rem_m}m"
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"24-Hour Alert Cooldown active for voluntary donor {donor.name}. Next alert dispatch unlocks in {cooldown_display}."
+            )
+
+    # 3. Update Donor Cooldown Timestamp
+    if donor:
+        donor.last_alert_sent_at = now_utc
+        db.commit()
+
+    # Clean inputs
     effective_phone = payload.contact_number or payload.requester_phone or "Attending Clinical Dispatch"
+    clean_patient = payload.patient_name.strip() if payload.patient_name else "Emergency Transfusion Recipient"
+    clean_hospital = payload.hospital.strip() if payload.hospital else "Regional Emergency Trauma Center"
+    clean_requester_name = payload.requester_name.strip() if payload.requester_name else "Clinical Coordinator"
+
+    # 4. Enqueue Donor Alert Email
     background_tasks.add_task(
         send_emergency_donor_dispatch_email,
         donor_email=payload.donor_email,
         donor_name=payload.donor_name,
         blood_type=payload.blood_type,
-        patient_name=payload.patient_name or "Emergency Transfusion Case",
-        hospital=payload.hospital or "Regional Emergency Center",
+        patient_name=clean_patient,
+        hospital=clean_hospital,
         hospital_city=payload.hospital_city or "Delhi",
         contact_number=effective_phone,
         distance_km=payload.distance_km,
         custom_message=payload.custom_message,
-        requester_name=payload.requester_name,
+        requester_name=clean_requester_name,
         requester_email=payload.requester_email,
-        requester_phone=payload.requester_phone or effective_phone
+        requester_phone=effective_phone
     )
+
+    # 5. Enqueue Clinician Confirmation Email
+    if payload.requester_email and "@" in payload.requester_email:
+        background_tasks.add_task(
+            send_emergency_dispatch_confirmation_to_clinician,
+            clinician_email=payload.requester_email.strip().lower(),
+            clinician_name=clean_requester_name,
+            donor_name=payload.donor_name,
+            donor_email=payload.donor_email,
+            donor_blood_type=payload.blood_type,
+            patient_name=clean_patient,
+            hospital=clean_hospital,
+            contact_number=effective_phone,
+            custom_message=payload.custom_message
+        )
+
+    # 6. Real-time Multi-Device Sync via WebSockets
+    safe_broadcast({
+        "type": "DONOR_ALERT_DISPATCHED",
+        "donor_id": donor.id if donor else payload.donor_id,
+        "donor_email": payload.donor_email,
+        "last_alert_sent_at": now_utc.isoformat(),
+        "patient_name": clean_patient,
+        "blood_type": payload.blood_type,
+        "message": f"Emergency blood alert transmitted to {payload.donor_name}."
+    })
+
+    # 7. Cloudflare R2 Sync if requester_email available
+    if payload.requester_email:
+        try:
+            sync_user_state_to_r2(payload.requester_email.strip().lower(), db)
+        except Exception:
+            pass
 
     return {
         "ok": True,
-        "message": f"Emergency dispatch alert transmitted to {payload.donor_name} ({payload.donor_email}).",
+        "message": f"Emergency dispatch alert transmitted to {payload.donor_name} ({payload.donor_email}). Confirmation receipt dispatched to {payload.requester_email}.",
+        "donor_id": donor.id if donor else payload.donor_id,
         "donor_email": payload.donor_email,
-        "dispatched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        "last_alert_sent_at": now_utc.isoformat(),
+        "dispatched_at": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
     }
 
 @app.post("/api/emergency/email-roster", tags=["Emergency"])

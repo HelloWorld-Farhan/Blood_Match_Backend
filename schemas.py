@@ -169,6 +169,7 @@ class ClinicalAuditLogCreateRequest(BaseModel):
     details: Optional[str] = None
 
 class EmergencyDispatchDonorRequest(BaseModel):
+    donor_id: Optional[str] = None
     donor_email: str = Field(..., min_length=5, max_length=150)
     donor_name: str = Field(..., min_length=1, max_length=120)
     blood_type: str = Field("O+", min_length=2, max_length=10)
