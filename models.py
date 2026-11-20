@@ -337,18 +337,26 @@ class DonorModel(Base):
             "id": self.id,
             "user_email": self.user_email,
             "name": self.name,
+            "fullName": self.name,
             "blood_type": self.blood_type,
+            "bloodType": self.blood_type,
             "phone": self.phone,
             "email": self.email,
             "city": self.city,
+            "state": "Delhi",
             "location": self.location or self.city,
             "hospital": self.hospital,
             "age": self.age or 28,
             "gender": self.gender or "MALE",
             "units_donated_total": self.units_donated_total or 0,
+            "unitsDonatedTotal": self.units_donated_total or 0,
             "last_donation_date": self.last_donation_date,
+            "lastDonationDate": self.last_donation_date,
             "is_available": self.is_available,
-            "created_at": self.created_at.isoformat() if self.created_at else None
+            "isAvailable": self.is_available,
+            "available": self.is_available,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "registeredAt": self.created_at.isoformat() if self.created_at else None
         }
 
 class EmergencyRequestModel(Base):
