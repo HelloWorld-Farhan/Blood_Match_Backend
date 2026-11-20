@@ -1279,28 +1279,102 @@ def send_clinician_donor_roster_email(
 def send_transfusion_fulfilled_emails(
     requester_email: Optional[str],
     requester_name: Optional[str],
-    donor_email: str,
-    donor_name: str,
     patient_name: str,
     blood_type: str,
     units_needed: int = 1,
-    hospital: Optional[str] = "Emergency Trauma Network"
+    hospital: Optional[str] = "Emergency Trauma Network",
+    donor_email: Optional[str] = None,
+    donor_name: Optional[str] = None,
+    selected_donors: Optional[list] = None,
+    fulfilled_via_reserve: bool = False
 ) -> dict:
     """
-    Sends concise, professional clinical completion & gratitude emails to:
-    1. The emergency requester / clinician confirming the call was fulfilled.
-    2. The voluntary donor expressing heartfelt clinical thanks for saving a life.
+    Sends concise, professional clinical completion & gratitude emails:
+    1. If voluntary donors were selected:
+       - Transmits heartfelt donor gratitude emails to each participating donor.
+       - Transmits clinician fulfillment email citing all participating donors.
+    2. If fulfilled via reserve / no donor selected:
+       - Transmits clinician fulfillment email confirming closure via external clinical reserve.
+       - Dispatches 0 donor emails.
     """
-    results = {"requester_sent": False, "donor_sent": False}
-    donor_name = sanitize_recipient_name(donor_name)
+    results = {"requester_sent": False, "donors_sent": 0}
     if requester_name:
         requester_name = sanitize_recipient_name(requester_name)
-    
-    # 1. Email to Requester
+
+    # Normalize donors list
+    donors_to_notify = []
+    if selected_donors and isinstance(selected_donors, list):
+        for d in selected_donors:
+            if isinstance(d, dict) and d.get("email") and "@" in d.get("email"):
+                donors_to_notify.append({
+                    "name": sanitize_recipient_name(d.get("name") or "Voluntary Donor"),
+                    "email": d.get("email").strip().lower(),
+                    "blood_type": d.get("blood_type") or blood_type
+                })
+    elif donor_email and "@" in donor_email:
+        donors_to_notify.append({
+            "name": sanitize_recipient_name(donor_name or "Voluntary Donor"),
+            "email": donor_email.strip().lower(),
+            "blood_type": blood_type
+        })
+
+    is_reserve = fulfilled_via_reserve or len(donors_to_notify) == 0
+
+    # 1. Email to Requester / Clinician
     if requester_email and "@" in requester_email:
-        req_subject = f"Transfusion Demand Fulfilled: {patient_name} ({blood_type})"
-        req_text = f"Dear {requester_name or 'Clinician'},\n\nYour emergency transfusion demand for {patient_name} ({blood_type}, {units_needed} units) at {hospital} has been marked as FULFILLED by voluntary donor {donor_name}.\n\nThe emergency call has been closed on the triage board.\n\nBloodMatch Clinical Operations"
-        req_html = f"""<!DOCTYPE html>
+        if is_reserve:
+            req_subject = f"Transfusion Demand Closed: {patient_name} ({blood_type}) - Fulfilled via Clinical Reserve"
+            req_text = f"""Dear {requester_name or 'Clinician'},
+
+Your emergency transfusion demand for patient {patient_name} ({blood_type}, {units_needed} Pints) at {hospital} has been marked as FULFILLED and closed via Alternative Clinical Reserve / External Stock.
+
+No voluntary donor pledge was consumed for this delivery. The emergency ticket is officially closed in the triage registry.
+
+BloodMatch Emergency Transfusion Network • Clinical Reserve Operations
+"""
+            req_html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
+  .card {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }}
+  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #EFF6FF; color: #1E40AF; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
+  h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
+  p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; }}
+  .box {{ background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; color: #0369A1; }}
+  .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
+</style></head>
+<body>
+  <div class="card">
+    <div class="badge">✓ Closed via Clinical Reserve</div>
+    <h2>Emergency Request Fulfilled via Alternative Reserve</h2>
+    <p>Dear {requester_name or 'Attending Clinician'},</p>
+    <p>Your emergency transfusion demand has been fulfilled through hospital reserve/external supply and logged in the clinical ledger.</p>
+    <div class="box">
+      <strong>Patient:</strong> {patient_name} ({blood_type}, {units_needed} Pints)<br>
+      <strong>Facility:</strong> {hospital}<br>
+      <strong>Fulfillment Source:</strong> Alternative Clinical Reserve / External Stock (No voluntary donor assigned)<br>
+      <strong>Status:</strong> Case Logged &amp; Transfusion Completed
+    </div>
+    <p>The emergency request has been marked fulfilled and active live tracking is closed.</p>
+    <div class="footer">BloodMatch Clinical Operations • Emergency Triage Registry</div>
+  </div>
+</body>
+</html>"""
+        else:
+            donor_summary = ", ".join([f"{d['name']} ({d['blood_type']})" for d in donors_to_notify])
+            req_subject = f"Transfusion Demand Fulfilled: {patient_name} ({blood_type})"
+            req_text = f"""Dear {requester_name or 'Clinician'},
+
+Your emergency transfusion demand for patient {patient_name} ({blood_type}, {units_needed} Pints) at {hospital} has been marked as FULFILLED.
+
+Fulfilled By Contributing Lifesaver(s):
+{donor_summary}
+
+The emergency call has been closed and gratitude notifications have been transmitted to all participating lifesavers.
+
+BloodMatch Emergency Transfusion Network • Clinical Operations
+"""
+            req_html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><style>
   body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
@@ -1320,22 +1394,36 @@ def send_transfusion_fulfilled_emails(
     <div class="box">
       <strong>Patient:</strong> {patient_name} ({blood_type}, {units_needed} Pints)<br>
       <strong>Facility:</strong> {hospital}<br>
-      <strong>Fulfilled By:</strong> {donor_name} ({donor_email})
+      <strong>Fulfilled By Lifesaver(s):</strong> {donor_summary}<br>
+      <strong>Status:</strong> Case Logged &amp; Transfusion Completed
     </div>
-    <p>Thank you for using the BloodMatch Emergency Mobilization Network.</p>
-    <div class="footer">BloodMatch Clinical Operations • Case Logged & Fulfilled</div>
+    <p>Heartfelt gratitude notices have been dispatched to all participating voluntary lifesavers.</p>
+    <div class="footer">BloodMatch Clinical Operations • Case Logged &amp; Fulfilled</div>
   </div>
 </body>
 </html>"""
+
         try:
             results["requester_sent"] = _dispatch_smtp(req_subject, requester_email, req_text, req_html)
         except Exception as exc:
             logger.warning(f"Could not send fulfillment email to requester: {exc}")
 
-    # 2. Email to Fulfilling Donor
-    if donor_email and "@" in donor_email:
+    # 2. Individual Emails to Each Fulfilling Donor
+    for d in donors_to_notify:
+        d_email = d["email"]
+        d_name = d["name"]
+        d_group = d.get("blood_type", blood_type)
+
         donor_subject = f"Thank You for Saving a Life: Blood Transfusion Completed"
-        donor_text = f"Dear {donor_name},\n\nThank you! Your voluntary blood donation has fulfilled the emergency transfusion demand for {patient_name} ({blood_type}).\n\nYour generosity and immediate readiness made an immediate life-saving difference.\n\nWith deepest gratitude,\nBloodMatch Clinical Operations"
+        donor_text = f"""Dear {d_name},
+
+Thank you! Your voluntary blood donation has fulfilled the urgent transfusion demand for patient {patient_name} ({blood_type}).
+
+Your generosity and readiness made an immediate life-saving difference today.
+
+With deepest gratitude,
+BloodMatch Clinical Operations Network
+"""
         donor_html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><style>
@@ -1351,12 +1439,13 @@ def send_transfusion_fulfilled_emails(
   <div class="card">
     <div class="badge">♥ Life-Saving Donor</div>
     <h2>Thank You for Your Blood Donation</h2>
-    <p>Dear {donor_name},</p>
+    <p>Dear {d_name},</p>
     <p>We are writing to express our sincere clinical gratitude. Your voluntary donation has successfully fulfilled the urgent transfusion demand for patient <strong>{patient_name}</strong> ({blood_type}).</p>
     <div class="box">
-      <strong>Transfusion Record:</strong> {patient_name} • Group {blood_type}<br>
-      <strong>Hospital:</strong> {hospital}<br>
-      <strong>Status:</strong> Successfully Transfused & Completed
+      <strong>Transfusion Record:</strong> Patient {patient_name} • Group {blood_type}<br>
+      <strong>Hospital Facility:</strong> {hospital}<br>
+      <strong>Donor Attribution:</strong> {d_name} (Group {d_group})<br>
+      <strong>Status:</strong> Successfully Transfused &amp; Completed
     </div>
     <p>Your selfless contribution and swift mobilization truly helped save a life today.</p>
     <div class="footer">BloodMatch Voluntary Donor Network • Clinical Gratitude Node</div>
@@ -1364,9 +1453,12 @@ def send_transfusion_fulfilled_emails(
 </body>
 </html>"""
         try:
-            results["donor_sent"] = _dispatch_smtp(donor_subject, donor_email, donor_text, donor_html)
+            if _dispatch_smtp(donor_subject, d_email, donor_text, donor_html):
+                results["donors_sent"] += 1
         except Exception as exc:
-            logger.warning(f"Could not send thanks email to donor: {exc}")
+            logger.warning(f"Could not send thanks email to donor {d_email}: {exc}")
+
+    return results
 
     return results
 

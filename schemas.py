@@ -49,8 +49,10 @@ class EmergencyFulfillRequest(BaseModel):
     requester_email: Optional[str] = None
     requester_name: Optional[str] = None
     donor_id: Optional[str] = None
-    donor_name: str = Field(..., min_length=2)
-    donor_email: str = Field(..., min_length=5)
+    donor_name: Optional[str] = None
+    donor_email: Optional[str] = None
+    selected_donors: Optional[List[dict]] = None
+    fulfilled_via_reserve: Optional[bool] = False
     notes: Optional[str] = None
 
 class ClinicianProfileRequest(BaseModel):

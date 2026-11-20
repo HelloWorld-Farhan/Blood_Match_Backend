@@ -3413,12 +3413,30 @@ def fulfill_emergency_request(
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency request not found.")
 
+    donors = payload.selected_donors or []
+    if not donors and payload.donor_name and payload.donor_email:
+        donors = [{
+            "id": payload.donor_id,
+            "name": payload.donor_name,
+            "email": payload.donor_email,
+            "blood_type": req.blood_type
+        }]
+
+    is_reserve = payload.fulfilled_via_reserve or len(donors) == 0
+
     req.status = "fulfilled"
     req.fulfilled_at = datetime.utcnow()
-    req.matched_donor_id = payload.donor_id or req.matched_donor_id
-    req.fulfilled_by_donor_name = payload.donor_name
-    req.fulfilled_by_donor_email = payload.donor_email.strip().lower()
     req.live_tracking = False  # Turn off live tracking once fulfilled
+
+    if is_reserve:
+        req.matched_donor_id = None
+        req.fulfilled_by_donor_name = "Alternative Clinical Reserve / External Stock"
+        req.fulfilled_by_donor_email = None
+    else:
+        req.matched_donor_id = donors[0].get("id") or payload.donor_id or req.matched_donor_id
+        req.fulfilled_by_donor_name = ", ".join([d.get("name", "Voluntary Donor") for d in donors])
+        req.fulfilled_by_donor_email = ", ".join([d.get("email", "") for d in donors if d.get("email")])
+
     db.commit()
 
     target_email = req.user_email or (payload.requester_email.strip().lower() if payload.requester_email else None)
@@ -3436,12 +3454,12 @@ def fulfill_emergency_request(
         send_transfusion_fulfilled_emails,
         requester_email=payload.requester_email or req.user_email,
         requester_name=payload.requester_name or req.contact_person,
-        donor_email=payload.donor_email,
-        donor_name=payload.donor_name,
         patient_name=req.patient_name,
         blood_type=req.blood_type,
         units_needed=req.units_needed,
-        hospital=req.hospital
+        hospital=req.hospital,
+        selected_donors=donors,
+        fulfilled_via_reserve=is_reserve
     )
 
     return {
