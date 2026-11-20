@@ -183,7 +183,14 @@ app = FastAPI(
 
 PORT = int(os.getenv("PORT", 8000))
 CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "").strip()
-explicit_origins = [orig.strip() for orig in CORS_ORIGINS_RAW.split(",") if orig.strip()] if CORS_ORIGINS_RAW else []
+DEFAULT_EXPLICIT_ORIGINS = [
+    "https://blood-match-software.bloodmatch-support.workers.dev",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000"
+]
+explicit_origins = list(set(DEFAULT_EXPLICIT_ORIGINS + ([orig.strip() for orig in CORS_ORIGINS_RAW.split(",") if orig.strip()] if CORS_ORIGINS_RAW else [])))
 
 # Requirement 1: Fallback regex for modern hosting providers (Vercel, Cloudflare Pages/Workers, Netlify, localhost)
 ORIGIN_REGEX = r"^https?:\/\/(.*\.vercel\.app|.*\.pages\.dev|.*\.workers\.dev|.*\.netlify\.app|localhost|127\.0\.0\.1)(:\d+)?$"
