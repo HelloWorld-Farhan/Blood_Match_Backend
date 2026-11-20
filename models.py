@@ -429,6 +429,20 @@ class EmergencyRequestModel(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
+class DeletedEmergencyRequestModel(Base):
+    __tablename__ = "deleted_emergency_requests"
+
+    id = Column(String(36), primary_key=True)
+    user_email = Column(String(120), nullable=True, index=True)
+    deleted_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_email": self.user_email,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None
+        }
+
 class ClinicianProfileModel(Base):
     __tablename__ = "clinician_profiles"
 

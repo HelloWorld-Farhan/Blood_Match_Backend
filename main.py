@@ -29,6 +29,7 @@ from models import (
     InventoryModel,
     DonorModel,
     EmergencyRequestModel,
+    DeletedEmergencyRequestModel,
     ClinicianProfileModel,
     ClinicalCheckModel,
     ClinicalAuditLogModel,
@@ -134,8 +135,13 @@ def sanitize_display_name(name: Optional[str]) -> str:
     cleaned = re.sub(r'^(?:Dr\.?|Doctor|Prof\.?|Mr\.?|Mrs\.?|Ms\.?)\s+', '', str(name).strip(), flags=re.IGNORECASE).strip()
     return cleaned or "Clinician"
 
+main_event_loop = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global main_event_loop
+    import asyncio
+    main_event_loop = asyncio.get_running_loop()
     logger.info("Initializing database schema on startup...")
     init_db()
     # Auto-hydrate users from permanent Cloudflare R2 mirror
@@ -236,10 +242,10 @@ def safe_broadcast(message: dict):
             loop = None
         if loop and loop.is_running():
             asyncio.create_task(ws_manager.broadcast(message))
-        else:
-            asyncio.run(ws_manager.broadcast(message))
-    except Exception:
-        pass
+        elif main_event_loop and main_event_loop.is_running():
+            asyncio.run_coroutine_threadsafe(ws_manager.broadcast(message), main_event_loop)
+    except Exception as exc:
+        logger.warning(f"safe_broadcast error: {exc}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -3572,22 +3578,42 @@ def fulfill_emergency_request(
         "request": req.to_dict()
     }
 
+@app.get("/api/emergency/deleted-ids", tags=["Emergency"])
+def get_deleted_emergency_ids(
+    user_email: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the persistent list of emergency request tombstones/deleted IDs
+    for cross-device synchronization and cache pruning.
+    """
+    query = db.query(DeletedEmergencyRequestModel)
+    if user_email:
+        email_clean = user_email.strip().lower()
+        query = query.filter((DeletedEmergencyRequestModel.user_email == email_clean) | (DeletedEmergencyRequestModel.user_email.is_(None)))
+    deleted_records = query.all()
+    return {"deleted_ids": [r.id for r in deleted_records]}
+
 @app.delete("/api/emergency/{request_id}", tags=["Emergency"])
-def delete_emergency_request(
+async def delete_emergency_request(
     request_id: str,
     user_email: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     """
-    Requirement 4: Deletion Persistence in Database, R2 Snapshot & Real-time WebSockets
+    Requirement 4: Deletion Persistence in Database, Tombstones, R2 Snapshot & Real-time WebSockets
     """
     req = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == request_id).first()
-    if not req:
-        safe_broadcast({"type": "EMERGENCY_DELETED", "deleted_id": request_id, "user_email": user_email.strip().lower() if user_email else None})
-        return {"message": "Emergency request already removed.", "deleted_id": request_id}
+    target_email = user_email.strip().lower() if user_email else (req.user_email.strip().lower() if req and req.user_email else None)
 
-    target_email = user_email.strip().lower() if user_email else req.user_email
-    db.delete(req)
+    if req:
+        db.delete(req)
+
+    # Persist tombstone in DeletedEmergencyRequestModel so any client pulling sync knows it's deleted
+    existing_del = db.query(DeletedEmergencyRequestModel).filter(DeletedEmergencyRequestModel.id == request_id).first()
+    if not existing_del:
+        db.add(DeletedEmergencyRequestModel(id=request_id, user_email=target_email))
+
     db.commit()
 
     if target_email:
@@ -3600,7 +3626,8 @@ def delete_emergency_request(
     except Exception as sync_err:
         logger.warning(f"Failed to sync post-deletion DB snapshot to R2: {sync_err}")
 
-    safe_broadcast({"type": "EMERGENCY_DELETED", "deleted_id": request_id, "user_email": target_email})
+    # Directly await broadcast to all active WebSockets on main event loop!
+    await ws_manager.broadcast({"type": "EMERGENCY_DELETED", "deleted_id": request_id, "user_email": target_email})
 
     return {"message": "Emergency request deleted successfully.", "deleted_id": request_id}
 
