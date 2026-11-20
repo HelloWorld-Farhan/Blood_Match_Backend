@@ -3416,6 +3416,12 @@ def create_emergency_request(
             db.commit()
             if email_clean:
                 sync_user_state_to_r2(email_clean, db)
+            try:
+                from r2_db_sync import sync_db_to_r2
+                from database import sqlite_path
+                sync_db_to_r2(sqlite_path, force=True)
+            except Exception:
+                pass
             safe_broadcast({"type": "EMERGENCY_UPDATED", "request": existing.to_dict()})
             return existing.to_dict()
 
@@ -3440,6 +3446,12 @@ def create_emergency_request(
 
     if email_clean:
         sync_user_state_to_r2(email_clean, db)
+    try:
+        from r2_db_sync import sync_db_to_r2
+        from database import sqlite_path
+        sync_db_to_r2(sqlite_path, force=True)
+    except Exception:
+        pass
 
     safe_broadcast({"type": "EMERGENCY_CREATED", "request": req.to_dict()})
 
@@ -3520,6 +3532,12 @@ def fulfill_emergency_request(
     target_email = req.user_email or (payload.requester_email.strip().lower() if payload.requester_email else None)
     if target_email:
         sync_user_state_to_r2(target_email, db)
+    try:
+        from r2_db_sync import sync_db_to_r2
+        from database import sqlite_path
+        sync_db_to_r2(sqlite_path, force=True)
+    except Exception:
+        pass
 
     safe_broadcast({
         "type": "EMERGENCY_FULFILLED",
@@ -3553,11 +3571,12 @@ def delete_emergency_request(
     db: Session = Depends(get_db)
 ):
     """
-    Requirement 4: Deletion Persistence in Database & R2
+    Requirement 4: Deletion Persistence in Database, R2 Snapshot & Real-time WebSockets
     """
     req = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == request_id).first()
     if not req:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency request not found.")
+        safe_broadcast({"type": "EMERGENCY_DELETED", "deleted_id": request_id, "user_email": user_email.strip().lower() if user_email else None})
+        return {"message": "Emergency request already removed.", "deleted_id": request_id}
 
     target_email = user_email.strip().lower() if user_email else req.user_email
     db.delete(req)
@@ -3565,6 +3584,15 @@ def delete_emergency_request(
 
     if target_email:
         sync_user_state_to_r2(target_email, db)
+
+    try:
+        from r2_db_sync import sync_db_to_r2
+        from database import sqlite_path
+        sync_db_to_r2(sqlite_path, force=True)
+    except Exception as sync_err:
+        logger.warning(f"Failed to sync post-deletion DB snapshot to R2: {sync_err}")
+
+    safe_broadcast({"type": "EMERGENCY_DELETED", "deleted_id": request_id, "user_email": target_email})
 
     return {"message": "Emergency request deleted successfully.", "deleted_id": request_id}
 
