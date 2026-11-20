@@ -3432,6 +3432,10 @@ def create_emergency_request(
     clean_patient = strip_honorific(payload.patient_name) or payload.patient_name
     clean_contact = strip_honorific(payload.contact_person) or payload.contact_person
     
+    # Clean up any tombstone if this ID was previously marked deleted
+    if payload.id:
+        db.query(DeletedEmergencyRequestModel).filter(DeletedEmergencyRequestModel.id == payload.id).delete()
+
     # If client passed an ID (e.g. REQ-xxxxxx), check if it already exists
     if payload.id:
         existing = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == payload.id).first()
