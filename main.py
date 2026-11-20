@@ -2679,9 +2679,31 @@ def list_active_sessions(
         .order_by(UserSessionModel.last_active.desc())
         .all()
     )
+
+    # Auto-cleanup / supersede ghost active sessions on the same IP when a recognized station is active
+    active_sessions = [s for s in all_sessions if s.status == "active"]
+    recognized_ips = {
+        s.ip_address.strip()
+        for s in active_sessions
+        if s.ip_address and s.device_name != "Unknown Workstation" and s.os != "Unknown OS"
+    }
+
+    needs_commit = False
+    for s in active_sessions:
+        if s.status == "active" and s.id != current_sid:
+            if (s.device_name == "Unknown Workstation" or s.os == "Unknown OS") and s.ip_address and s.ip_address.strip() in recognized_ips:
+                s.status = "revoked"
+                needs_commit = True
+    if needs_commit:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    primary_dev_ids = set(current_user.get_primary_device_ids())
     result = []
     for s in all_sessions:
-        is_primary = bool(current_user.is_device_primary(s.device_id) if s.device_id else s.is_primary)
+        is_primary = bool(s.device_id in primary_dev_ids if s.device_id and primary_dev_ids else s.is_primary)
         result.append(s.to_dict(current_session_id=current_sid, is_primary_override=is_primary))
     return result
 
