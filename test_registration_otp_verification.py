@@ -18,7 +18,9 @@ class TestRegistrationOtpVerification(unittest.TestCase):
     def setUp(self):
         self.session = SessionLocal()
         import uuid
+        import random
         self.test_email = f"clinician.verify.{uuid.uuid4().hex[:6]}@hospital.org"
+        self.test_phone = f"+91 9{random.randint(100000000, 999999999)}"
         self.session.query(OtpTokenModel).filter(OtpTokenModel.email == self.test_email).delete()
         self.session.query(UserSessionModel).delete()
         self.session.query(UserModel).filter(UserModel.email == self.test_email).delete()
@@ -36,9 +38,9 @@ class TestRegistrationOtpVerification(unittest.TestCase):
 
         # 1. Register User
         reg_payload = {
-            "full_name": "Dr. Sarah Connor",
+            "full_name": "Sarah Connor",
             "email": self.test_email,
-            "phone": "+91 98765 43210",
+            "phone": self.test_phone,
             "password": password
         }
         reg_resp = self.client.post("/api/auth/register", json=reg_payload)
@@ -79,8 +81,9 @@ class TestRegistrationOtpVerification(unittest.TestCase):
     def test_invalid_otp_code_returns_400(self):
         password = "ValidPass123!#"
         reg_resp = self.client.post("/api/auth/register", json={
-            "full_name": "Dr. James Smith",
+            "full_name": "James Smith",
             "email": self.test_email,
+            "phone": self.test_phone,
             "password": password
         })
         self.assertEqual(reg_resp.status_code, 201)
