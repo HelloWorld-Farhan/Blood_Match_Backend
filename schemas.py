@@ -210,4 +210,9 @@ class GpsPermissionToggleRequest(BaseModel):
     enabled: bool
     user_email: Optional[str] = None
 
+class MarkAlertsReadRequest(BaseModel):
+    user_email: str = Field(..., min_length=3, max_length=150)
+    alert_ids: Optional[List[str]] = None
+    mark_all: bool = False
+
 

@@ -46,6 +46,26 @@ class UserModel(Base):
     verified_emails = Column(String(2048), nullable=True, default="[]")
     primary_device_ids = Column(String(1024), nullable=True, default="[]")
     gps_permission_enabled = Column(Boolean, default=False, nullable=False)
+    read_alert_ids = Column(String(4096), nullable=True, default="[]")
+
+    def get_read_alert_ids(self) -> list:
+        if self.read_alert_ids:
+            try:
+                parsed = json.loads(self.read_alert_ids)
+                if isinstance(parsed, list):
+                    return [str(aid).strip() for aid in parsed if aid and str(aid).strip()]
+            except Exception:
+                pass
+        return []
+
+    def mark_alerts_read(self, alert_ids: list) -> list:
+        current = set(self.get_read_alert_ids())
+        for aid in alert_ids:
+            if aid and str(aid).strip():
+                current.add(str(aid).strip())
+        updated = list(current)
+        self.read_alert_ids = json.dumps(updated)
+        return updated
 
     def get_primary_device_ids(self) -> list:
         if self.primary_device_ids:

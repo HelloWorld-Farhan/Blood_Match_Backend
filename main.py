@@ -65,6 +65,7 @@ from schemas import (
     SavedPhoneRequest,
     VerifiedEmailRequest,
     GpsPermissionToggleRequest,
+    MarkAlertsReadRequest,
     ClinicalCheckCreateRequest,
     ClinicalDocumentCreateRequest,
     ClinicalAuditLogCreateRequest
@@ -3134,8 +3135,8 @@ def register_donor(
             blood_type=new_donor.blood_type,
             donor_name=new_donor.name,
             location=donor_loc,
-            title=f"New Blood Available: Group {new_donor.blood_type}",
-            message=f"Certified voluntary donor {new_donor.name} enrolled for {donor_loc}. Standby ready for emergency transfusion dispatch."
+            title=f"New Group {new_donor.blood_type} Donor Available",
+            message=f"{new_donor.name} is now registered to donate Group {new_donor.blood_type} blood in {donor_loc}."
         )
         db.add(new_alert)
         db.commit()
@@ -3192,8 +3193,8 @@ def register_donor(
                     blood_type=new_donor.blood_type,
                     donor_name=new_donor.name,
                     location=donor_loc,
-                    title=f"🚨 Live Match: Compatible {new_donor.blood_type} Donor for Patient {er.patient_name}",
-                    message=f"Live Tracking radar matched voluntary donor {new_donor.name} ({new_donor.blood_type}) for urgent request {er.id} in {donor_loc}. Contact: {new_donor.phone}."
+                    title=f"Compatible {new_donor.blood_type} Donor Available for Patient {er.patient_name}",
+                    message=f"Voluntary donor {new_donor.name} ({new_donor.blood_type}) is available near {donor_loc} for patient {er.patient_name}. Contact: {new_donor.phone}."
                 )
                 db.add(match_alert)
                 db.commit()
@@ -3217,16 +3218,92 @@ def get_transfusion_alerts(
     db: Session = Depends(get_db)
 ):
     """
-    Returns active transfusion alerts across the network.
+    Returns active transfusion alerts across the network in simple, clear, professional English.
     Excludes alerts created by the requesting user so they only receive notifications when someone else registers blood.
+    Properly links alerts to active donor records so clicking View Record accurately points to the donor.
     """
     query = db.query(TransfusionAlertModel)
     if user_email:
         clean_email = user_email.strip().lower()
         query = query.filter(TransfusionAlertModel.creator_email != clean_email)
     
-    alerts = query.order_by(TransfusionAlertModel.created_at.desc()).limit(50).all()
-    return [a.to_dict() for a in alerts]
+    raw_alerts = query.order_by(TransfusionAlertModel.created_at.desc()).limit(50).all()
+    
+    # Retrieve active donors to ensure accurate record pointing
+    all_donors = db.query(DonorModel).all()
+    active_donor_ids = {d.id: d for d in all_donors}
+    active_donor_names = {d.name.strip().lower(): d for d in all_donors}
+
+    valid_alerts = []
+    for a in raw_alerts:
+        a_dict = a.to_dict()
+        
+        # Simple, crystal-clear, understandable English formatting
+        if a.title.startswith("New Blood Available:"):
+            a_dict["title"] = f"New Group {a.blood_type} Donor Available"
+            a_dict["message"] = f"{a.donor_name} is registered to donate Group {a.blood_type} blood in {a.location}."
+        
+        # Ensure donor_id points to an active donor card
+        if a.donor_id in active_donor_ids:
+            valid_alerts.append(a_dict)
+        elif a.donor_name.strip().lower() in active_donor_names:
+            matched_donor = active_donor_names[a.donor_name.strip().lower()]
+            a_dict["donor_id"] = matched_donor.id  # Corrected to live donor UUID so pointing works flawlessly!
+            valid_alerts.append(a_dict)
+        elif not all_donors:
+            valid_alerts.append(a_dict)
+
+    return valid_alerts
+
+@app.get("/api/alerts/read-ids", tags=["Transfusion Alerts"])
+def get_user_read_alert_ids(
+    user_email: str = Query(..., description="Authenticated user email"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves the persistent list of read alert IDs for this user from the database.
+    """
+    clean_email = user_email.strip().lower()
+    user = db.query(UserModel).filter(func.lower(UserModel.email) == clean_email).first()
+    read_ids = user.get_read_alert_ids() if user else []
+    return {"ok": True, "read_alert_ids": read_ids}
+
+@app.post("/api/alerts/mark-read", tags=["Transfusion Alerts"])
+def mark_alerts_read(
+    payload: MarkAlertsReadRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Marks one or all notifications as read, saves persistently in DB & Cloudflare R2,
+    and synchronizes in real-time across all devices via WebSockets.
+    """
+    clean_email = payload.user_email.strip().lower()
+    user = db.query(UserModel).filter(func.lower(UserModel.email) == clean_email).first()
+
+    alert_ids_to_mark = payload.alert_ids or []
+    if payload.mark_all:
+        all_alerts = db.query(TransfusionAlertModel.id).all()
+        alert_ids_to_mark = [a[0] for a in all_alerts]
+
+    updated_ids = []
+    if user:
+        updated_ids = user.mark_alerts_read(alert_ids_to_mark)
+        db.commit()
+        try:
+            sync_user_state_to_r2(clean_email, db)
+        except Exception:
+            pass
+    else:
+        updated_ids = alert_ids_to_mark
+
+    # Multi-Device Real-Time Synchronization via WebSockets
+    safe_broadcast({
+        "type": "ALERTS_MARKED_READ",
+        "user_email": clean_email,
+        "alert_ids": updated_ids
+    })
+
+    return {"ok": True, "success": True, "read_alert_ids": updated_ids, "count": len(updated_ids)}
 
 @app.delete("/api/donors/{donor_id}", tags=["Donors"])
 def delete_donor(
