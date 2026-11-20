@@ -61,6 +61,7 @@ from schemas import (
     SaveDocketRequest,
     SavedPhoneRequest,
     VerifiedEmailRequest,
+    GpsPermissionToggleRequest,
     ClinicalCheckCreateRequest,
     ClinicalDocumentCreateRequest,
     ClinicalAuditLogCreateRequest
@@ -234,6 +235,7 @@ def sync_user_state_to_r2(user_email: str, db: Session) -> Optional[dict]:
             "savedPhones": user.get_saved_phones() if user else [],
             "verifiedEmails": user.get_verified_emails() if user else [email_clean],
             "primaryDeviceIds": user.get_primary_device_ids() if user else [],
+            "gpsPermissionEnabled": bool(user.gps_permission_enabled) if user and user.gps_permission_enabled is not None else False,
             "profile": profile.to_dict() if profile else {
                 "full_name": user.full_name if user else "",
                 "work_email": email_clean,
@@ -3574,6 +3576,70 @@ def save_user_verified_email(
         logger.warning(f"Failed to sync verified emails to R2: {exc}")
 
     return {"status": "success", "verified_emails": emails}
+
+# ==========================================
+# USER GPS PERMISSION & CROSS-DEVICE SYNC
+# ==========================================
+@app.get("/api/user/gps-permission", tags=["User GPS Permission"])
+def get_user_gps_permission(
+    email: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email_clean = email.strip().lower() if email else None
+    if not email_clean and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
+                email_clean = u.email
+    if not email_clean:
+        u = db.query(UserModel).first()
+        email_clean = u.email if u else None
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first() if email_clean else None
+    return {
+        "user_email": email_clean,
+        "gps_permission_enabled": bool(user.gps_permission_enabled) if user and user.gps_permission_enabled is not None else False
+    }
+
+@app.put("/api/user/gps-permission", tags=["User GPS Permission"])
+def update_user_gps_permission(
+    payload: GpsPermissionToggleRequest,
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    email_clean = payload.user_email.strip().lower() if payload.user_email else None
+    if not email_clean and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            u = get_user_from_token(auth_header.split(" ")[1], db)
+            if u:
+                email_clean = u.email
+    if not email_clean:
+        u = db.query(UserModel).first()
+        email_clean = u.email if u else None
+
+    if not email_clean:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User email is required.")
+
+    user = db.query(UserModel).filter(UserModel.email == email_clean).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
+
+    user.gps_permission_enabled = bool(payload.enabled)
+    db.commit()
+
+    try:
+        sync_user_state_to_r2(email_clean, db)
+    except Exception as exc:
+        logger.warning(f"Failed to sync GPS permission to R2: {exc}")
+
+    return {
+        "status": "success",
+        "user_email": email_clean,
+        "gps_permission_enabled": bool(user.gps_permission_enabled)
+    }
 
 # ==========================================
 # CLINICAL CHECKS & SCREENING CONSULTATIONS

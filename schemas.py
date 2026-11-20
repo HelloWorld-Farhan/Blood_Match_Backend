@@ -198,3 +198,8 @@ class VerifiedEmailRequest(BaseModel):
     email: Optional[str] = None
     verified_email: str = Field(..., min_length=5, max_length=120)
 
+class GpsPermissionToggleRequest(BaseModel):
+    enabled: bool
+    user_email: Optional[str] = None
+
+

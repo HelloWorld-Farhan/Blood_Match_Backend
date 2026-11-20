@@ -45,6 +45,7 @@ class UserModel(Base):
     saved_phones = Column(String(1024), nullable=True, default="[]")
     verified_emails = Column(String(2048), nullable=True, default="[]")
     primary_device_ids = Column(String(1024), nullable=True, default="[]")
+    gps_permission_enabled = Column(Boolean, default=False, nullable=False)
 
     def get_primary_device_ids(self) -> list:
         if self.primary_device_ids:
@@ -148,6 +149,7 @@ class UserModel(Base):
             "verified_emails": self.get_verified_emails(),
             "is_verified": self.is_verified,
             "is_2fa_enabled": self.is_2fa_enabled,
+            "gps_permission_enabled": bool(self.gps_permission_enabled) if self.gps_permission_enabled is not None else False,
             "photo_url": self.photo_url,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
