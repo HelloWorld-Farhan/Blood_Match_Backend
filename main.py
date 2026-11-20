@@ -3763,7 +3763,7 @@ def dispatch_emergency_donor_alert(
         "type": "DONOR_ALERT_DISPATCHED",
         "donor_id": donor.id if donor else payload.donor_id,
         "donor_email": payload.donor_email,
-        "last_alert_sent_at": now_utc.isoformat(),
+        "last_alert_sent_at": f"{now_utc.isoformat()}Z",
         "patient_name": clean_patient,
         "blood_type": payload.blood_type,
         "message": f"Emergency blood alert transmitted to {payload.donor_name}."
@@ -3781,7 +3781,7 @@ def dispatch_emergency_donor_alert(
         "message": f"Emergency dispatch alert transmitted to {payload.donor_name} ({payload.donor_email}). Confirmation receipt dispatched to {payload.requester_email}.",
         "donor_id": donor.id if donor else payload.donor_id,
         "donor_email": payload.donor_email,
-        "last_alert_sent_at": now_utc.isoformat(),
+        "last_alert_sent_at": f"{now_utc.isoformat()}Z",
         "dispatched_at": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
     }
 

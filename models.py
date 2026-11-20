@@ -376,8 +376,8 @@ class DonorModel(Base):
             "is_available": self.is_available,
             "isAvailable": self.is_available,
             "available": self.is_available,
-            "last_alert_sent_at": self.last_alert_sent_at.isoformat() if self.last_alert_sent_at else None,
-            "lastAlertSentAt": self.last_alert_sent_at.isoformat() if self.last_alert_sent_at else None,
+            "last_alert_sent_at": (self.last_alert_sent_at.isoformat() + "Z") if self.last_alert_sent_at else None,
+            "lastAlertSentAt": (self.last_alert_sent_at.isoformat() + "Z") if self.last_alert_sent_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "registeredAt": self.created_at.isoformat() if self.created_at else None
         }
