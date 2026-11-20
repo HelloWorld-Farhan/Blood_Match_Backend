@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>Welcome to BloodMatch Transfusion Network</title>
   <style>
     body {
@@ -16,20 +18,21 @@
     .wrapper {
       width: 100%;
       background-color: #F5F1EF;
-      padding: 40px 16px;
+      padding: 32px 16px;
       box-sizing: border-box;
     }
     .card {
       max-width: 520px;
+      width: 100%;
       margin: 0 auto;
       background: #FFFFFF;
       border: 1px solid #D9C7C2;
-      border-radius: 20px;
+      border-radius: 18px;
       overflow: hidden;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
     }
     .header {
-      padding: 28px 32px 20px 32px;
+      padding: 24px 28px 18px 28px;
       border-bottom: 1px solid #F5F1EF;
       display: flex;
       align-items: center;
@@ -48,10 +51,10 @@
       text-transform: uppercase;
     }
     .content {
-      padding: 32px;
+      padding: 28px;
     }
     .title {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 900;
       color: #1A1D20;
       margin: 0 0 10px 0;
@@ -73,7 +76,7 @@
       background: #FAF8F7;
       border: 1px solid #D9C7C2;
       border-radius: 14px;
-      padding: 18px 20px;
+      padding: 16px 18px;
       margin: 20px 0;
     }
     .status-title {
@@ -112,21 +115,42 @@
     .notice-box {
       background: #F0FDF4;
       border-left: 3px solid #10B981;
-      padding: 12px 16px;
+      padding: 12px 14px;
       border-radius: 6px;
       font-size: 12px;
       color: #166534;
       line-height: 1.5;
-      margin-top: 24px;
+      margin-top: 20px;
     }
     .footer {
       border-top: 1px solid #F5F1EF;
-      padding: 20px 32px;
+      padding: 18px 24px;
       background: #FAF8F7;
       font-size: 11px;
       color: #8C949D;
       line-height: 1.5;
       text-align: center;
+    }
+    @media only screen and (max-width: 600px) {
+      .wrapper {
+        padding: 12px 8px !important;
+      }
+      .card {
+        border-radius: 14px !important;
+        width: 100% !important;
+      }
+      .content {
+        padding: 18px 14px !important;
+      }
+      .header {
+        padding: 16px 14px 12px 14px !important;
+      }
+      .footer {
+        padding: 14px 12px !important;
+      }
+      .status-card {
+        padding: 12px 12px !important;
+      }
     }
   </style>
 </head>

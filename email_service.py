@@ -54,11 +54,14 @@ EMAIL_HTML_FALLBACK = """
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>Account Verification Code</title>
   <style>
     body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
     .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
-    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .card { max-width: 520px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
     .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
     .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
     .content { padding: 32px; }
@@ -72,6 +75,14 @@ EMAIL_HTML_FALLBACK = """
     .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
     .notice-box strong { color: #D72638; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+    @media only screen and (max-width: 600px) {
+      .wrapper { padding: 12px 8px !important; }
+      .card { border-radius: 14px !important; width: 100% !important; }
+      .content { padding: 18px 14px !important; }
+      .header { padding: 16px 14px 12px 14px !important; }
+      .footer { padding: 14px 12px !important; }
+      .audit-card, .status-card, .member-box, .pledge-box { padding: 12px 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -112,11 +123,14 @@ LOCKOUT_HTML_FALLBACK = """
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>CRITICAL: Account Lockout Security Alert</title>
   <style>
     body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
     .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
-    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1.5px solid #D72638; border-radius: 20px; overflow: hidden; }
+    .card { max-width: 520px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1.5px solid #D72638; border-radius: 20px; overflow: hidden; }
     .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
     .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 800; color: #D72638; text-transform: uppercase; }
     .content { padding: 32px; }
@@ -130,6 +144,14 @@ LOCKOUT_HTML_FALLBACK = """
     .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
     .notice-box strong { color: #D72638; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+    @media only screen and (max-width: 600px) {
+      .wrapper { padding: 12px 8px !important; }
+      .card { border-radius: 14px !important; width: 100% !important; }
+      .content { padding: 18px 14px !important; }
+      .header { padding: 16px 14px 12px 14px !important; }
+      .footer { padding: 14px 12px !important; }
+      .audit-card, .status-card, .member-box, .pledge-box { padding: 12px 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -170,11 +192,14 @@ RESET_HTML_FALLBACK = """
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>Password Reset Code</title>
   <style>
     body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
     .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
-    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .card { max-width: 520px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
     .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
     .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
     .content { padding: 32px; }
@@ -188,6 +213,14 @@ RESET_HTML_FALLBACK = """
     .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
     .notice-box strong { color: #D72638; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+    @media only screen and (max-width: 600px) {
+      .wrapper { padding: 12px 8px !important; }
+      .card { border-radius: 14px !important; width: 100% !important; }
+      .content { padding: 18px 14px !important; }
+      .header { padding: 16px 14px 12px 14px !important; }
+      .footer { padding: 14px 12px !important; }
+      .audit-card, .status-card, .member-box, .pledge-box { padding: 12px 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -228,11 +261,14 @@ CHANGED_HTML_FALLBACK = """
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>Security Alert: Password Changed</title>
   <style>
     body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
     .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
-    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .card { max-width: 520px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
     .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
     .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
     .content { padding: 32px; }
@@ -244,6 +280,14 @@ CHANGED_HTML_FALLBACK = """
     .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
     .notice-box strong { color: #D72638; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+    @media only screen and (max-width: 600px) {
+      .wrapper { padding: 12px 8px !important; }
+      .card { border-radius: 14px !important; width: 100% !important; }
+      .content { padding: 18px 14px !important; }
+      .header { padding: 16px 14px 12px 14px !important; }
+      .footer { padding: 14px 12px !important; }
+      .audit-card, .status-card, .member-box, .pledge-box { padding: 12px 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -288,11 +332,14 @@ TWO_FACTOR_HTML_FALLBACK = """
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>Two-Factor Authentication Challenge</title>
   <style>
     body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
     .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
-    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .card { max-width: 520px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
     .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
     .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
     .content { padding: 32px; }
@@ -308,6 +355,14 @@ TWO_FACTOR_HTML_FALLBACK = """
     .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }
     .notice-box strong { color: #D72638; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+    @media only screen and (max-width: 600px) {
+      .wrapper { padding: 12px 8px !important; }
+      .card { border-radius: 14px !important; width: 100% !important; }
+      .content { padding: 18px 14px !important; }
+      .header { padding: 16px 14px 12px 14px !important; }
+      .footer { padding: 14px 12px !important; }
+      .audit-card, .status-card, .member-box, .pledge-box { padding: 12px 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -364,11 +419,14 @@ WELCOME_HTML_FALLBACK = """
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>Welcome to BloodMatch Transfusion Network</title>
   <style>
     body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
     .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
-    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .card { max-width: 520px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
     .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
     .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
     .content { padding: 32px; }
@@ -379,6 +437,14 @@ WELCOME_HTML_FALLBACK = """
     .member-id { font-family: monospace; font-weight: 800; color: #D72638; font-size: 15px; }
     .notice-box { background: #F0FDF4; border-left: 3px solid #10B981; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #166534; line-height: 1.5; margin-top: 20px; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+    @media only screen and (max-width: 600px) {
+      .wrapper { padding: 12px 8px !important; }
+      .card { border-radius: 14px !important; width: 100% !important; }
+      .content { padding: 18px 14px !important; }
+      .header { padding: 16px 14px 12px 14px !important; }
+      .footer { padding: 14px 12px !important; }
+      .audit-card, .status-card, .member-box, .pledge-box { padding: 12px 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -474,11 +540,14 @@ DONOR_THANKYOU_HTML_FALLBACK = """
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>Thank You for Registering as a Voluntary Blood Donor</title>
   <style>
     body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
     .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
-    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .card { max-width: 520px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
     .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
     .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
     .content { padding: 32px; }
@@ -491,6 +560,14 @@ DONOR_THANKYOU_HTML_FALLBACK = """
     .pledge-val { font-weight: 800; color: #D72638; }
     .notice-box { background: #F0FDF4; border-left: 3px solid #10B981; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #166534; line-height: 1.5; margin-top: 20px; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+    @media only screen and (max-width: 600px) {
+      .wrapper { padding: 12px 8px !important; }
+      .card { border-radius: 14px !important; width: 100% !important; }
+      .content { padding: 18px 14px !important; }
+      .header { padding: 16px 14px 12px 14px !important; }
+      .footer { padding: 14px 12px !important; }
+      .audit-card, .status-card, .member-box, .pledge-box { padding: 12px 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -536,11 +613,14 @@ NEW_SESSION_HTML_FALLBACK = """
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>New Session Login Advisory</title>
   <style>
     body { margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }
     .wrapper { width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }
-    .card { max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
+    .card { max-width: 520px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }
     .header { padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }
     .brand-pill { display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }
     .content { padding: 32px; }
@@ -556,6 +636,14 @@ NEW_SESSION_HTML_FALLBACK = """
     .notice-box { background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 24px; }
     .notice-box strong { color: #D72638; }
     .footer { border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }
+    @media only screen and (max-width: 600px) {
+      .wrapper { padding: 12px 8px !important; }
+      .card { border-radius: 14px !important; width: 100% !important; }
+      .content { padding: 18px 14px !important; }
+      .header { padding: 16px 14px 12px 14px !important; }
+      .footer { padding: 14px 12px !important; }
+      .audit-card, .status-card, .member-box, .pledge-box { padding: 12px 12px !important; }
+    }
   </style>
 </head>
 <body>
@@ -1077,20 +1165,32 @@ BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
     <html lang="en">
     <head>
       <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="color-scheme" content="light dark">
+      <meta name="supported-color-schemes" content="light dark">
       <title>Emergency Blood Donation Dispatch</title>
       <style>
-        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }}
-        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }}
-        .card {{ max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1.5px solid #D72638; border-radius: 20px; overflow: hidden; }}
-        .header {{ padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }}
+        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1A1D20; -webkit-font-smoothing: antialiased; }}
+        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 32px 16px; box-sizing: border-box; }}
+        .card {{ max-width: 540px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-top: 4px solid #D72638; border-radius: 18px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.04); }}
+        .header {{ padding: 20px 24px 14px 24px; border-bottom: 1px solid #F5F1EF; }}
         .brand-pill {{ display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 800; color: #D72638; text-transform: uppercase; }}
-        .content {{ padding: 32px; }}
-        .title {{ font-size: 22px; font-weight: 900; color: #7A0C17; margin: 0 0 10px 0; }}
+        .content {{ padding: 24px; }}
+        .title {{ font-size: 20px; font-weight: 900; color: #7A0C17; margin: 0 0 8px 0; }}
         .greeting {{ font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }}
-        .paragraph {{ font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }}
-        .audit-card {{ background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }}
-        .notice-box {{ background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 20px; }}
-        .footer {{ border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+        .paragraph {{ font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 16px 0; }}
+        .audit-card {{ background: #FAF8F7; border: 1px solid #EAE3E0; border-radius: 14px; padding: 14px 16px; margin: 16px 0; }}
+        .notice-box {{ background: #FFF5F5; border-left: 3px solid #D72638; padding: 12px 14px; border-radius: 6px; font-size: 12px; color: #5A626A; line-height: 1.5; margin-top: 16px; }}
+        .call-btn {{ display: block; width: 100%; box-sizing: border-box; text-align: center; padding: 12px 16px; background: #D72638; color: #FFFFFF !important; font-size: 13.5px; font-weight: 800; text-decoration: none; border-radius: 10px; margin-top: 14px; box-shadow: 0 2px 8px rgba(215, 38, 56, 0.25); }}
+        .footer {{ border-top: 1px solid #F5F1EF; padding: 18px 24px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+        @media only screen and (max-width: 600px) {{
+          .wrapper {{ padding: 12px 8px !important; }}
+          .card {{ border-radius: 14px !important; width: 100% !important; }}
+          .content {{ padding: 18px 12px !important; }}
+          .header {{ padding: 16px 14px 12px 14px !important; }}
+          .footer {{ padding: 14px 12px !important; }}
+          .audit-card {{ padding: 12px 12px !important; }}
+        }}
       </style>
     </head>
     <body>
@@ -1104,30 +1204,27 @@ BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
             <div class="audit-card">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Requester / Contact</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{effective_requester}</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600; width: 36%;">Requester / Contact</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; word-break: break-word;">{effective_requester}</td>
                 </tr>
                 {f'''<tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Verified Sender Email</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{requester_email}</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600;">Sender Email</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; word-break: break-word;">{requester_email}</td>
                 </tr>''' if requester_email else ''}
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Patient / Case</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{patient_name}</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600; vertical-align: top;">Facility / Location</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; word-break: break-word;">{hospital}, {hospital_city}</td>
                 </tr>
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Facility / Location</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{hospital}, {hospital_city}</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600;">Proximity Distance</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #047857; font-weight: 800; text-align: right;">~{distance_km:.1f} km away</td>
                 </tr>
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Proximity Distance</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: 800; text-align: right;">~{distance_km:.1f} km away</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500;">Emergency Hotline</td>
-                  <td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;"><a href="tel:{effective_phone}" style="color: #D72638; text-decoration: none; font-weight: 800;">{effective_phone}</a></td>
+                  <td style="padding: 7px 0; font-size: 11.5px; color: #75808A; font-weight: 600;">Emergency Hotline</td>
+                  <td style="padding: 7px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;"><a href="tel:{effective_phone}" style="color: #D72638; text-decoration: none; font-weight: 800;">{effective_phone}</a></td>
                 </tr>
               </table>
+              <a href="tel:{effective_phone}" class="call-btn">🚨 Call Emergency Hotline Now ({effective_phone})</a>
             </div>
             <div class="notice-box">
               <strong>Clinical Urgency Message:</strong> {custom_message or 'Please contact the emergency hotline number immediately if you are available for donation.'}
@@ -1198,25 +1295,43 @@ CASE & DISPATCH DETAILS:
 BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
 """
 
+    patient_row_html = f"""
+                <tr>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600;">Patient / Case</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; word-break: break-word;">{clean_patient}</td>
+                </tr>
+    """ if clean_patient and clean_patient != "Emergency Transfusion Case" and clean_patient != "Emergency Transfusion Recipient" else ""
+
     html_body = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="color-scheme" content="light dark">
+      <meta name="supported-color-schemes" content="light dark">
       <title>Emergency Alert Transmission Confirmation</title>
       <style>
-        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }}
-        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }}
-        .card {{ max-width: 520px; margin: 0 auto; background: #FFFFFF; border: 1.5px solid #28A745; border-radius: 20px; overflow: hidden; }}
-        .header {{ padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; display: flex; align-items: center; justify-content: space-between; }}
+        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1A1D20; -webkit-font-smoothing: antialiased; }}
+        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 32px 16px; box-sizing: border-box; }}
+        .card {{ max-width: 540px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-top: 4px solid #16A34A; border-radius: 18px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.04); }}
+        .header {{ padding: 20px 24px 14px 24px; border-bottom: 1px solid #F5F1EF; }}
         .brand-pill {{ display: inline-block; padding: 4px 10px; background: #E8F8EE; border: 1px solid #B8E8C8; border-radius: 100px; font-size: 11px; font-weight: 800; color: #1E7E34; text-transform: uppercase; }}
-        .content {{ padding: 32px; }}
-        .title {{ font-size: 22px; font-weight: 900; color: #155724; margin: 0 0 10px 0; }}
+        .content {{ padding: 24px; }}
+        .title {{ font-size: 20px; font-weight: 900; color: #155724; margin: 0 0 8px 0; }}
         .greeting {{ font-size: 14px; font-weight: 700; color: #1A1D20; margin-bottom: 8px; }}
-        .paragraph {{ font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 20px 0; }}
-        .audit-card {{ background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 18px 20px; margin: 20px 0; }}
-        .notice-box {{ background: #F4FBF7; border-left: 3px solid #28A745; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #2E5A3D; line-height: 1.5; margin-top: 20px; }}
-        .footer {{ border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+        .paragraph {{ font-size: 13px; line-height: 1.6; color: #5A626A; margin: 0 0 16px 0; }}
+        .audit-card {{ background: #FAF8F7; border: 1px solid #EAE3E0; border-radius: 14px; padding: 14px 16px; margin: 16px 0; }}
+        .notice-box {{ background: #F4FBF7; border-left: 3px solid #16A34A; padding: 12px 14px; border-radius: 6px; font-size: 12px; color: #2E5A3D; line-height: 1.5; margin-top: 16px; }}
+        .footer {{ border-top: 1px solid #F5F1EF; padding: 18px 24px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+        @media only screen and (max-width: 600px) {{
+          .wrapper {{ padding: 12px 8px !important; }}
+          .card {{ border-radius: 14px !important; width: 100% !important; }}
+          .content {{ padding: 18px 12px !important; }}
+          .header {{ padding: 16px 14px 12px 14px !important; }}
+          .footer {{ padding: 14px 12px !important; }}
+          .audit-card {{ padding: 12px 12px !important; }}
+        }}
       </style>
     </head>
     <body>
@@ -1232,34 +1347,31 @@ BloodMatch Emergency Transfusion Network • Verified Clinical Dispatch Node
             <div class="audit-card">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Voluntary Donor</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{clean_donor} ({donor_email})</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600; width: 36%; vertical-align: top;">Voluntary Donor</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; word-break: break-word;">{clean_donor}<br><span style="font-size: 10.5px; font-weight: 500; color: #5A626A;">({donor_email})</span></td>
                 </tr>
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Blood Group</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: 900; text-align: right;">Group {donor_blood_type}</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600;">Blood Group</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: 900; text-align: right;">Group {donor_blood_type}</td>
+                </tr>
+                {patient_row_html}
+                <tr>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600; vertical-align: top;">Facility / Location</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; word-break: break-word;">{hospital}</td>
                 </tr>
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Patient / Case</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{clean_patient}</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 11.5px; color: #75808A; font-weight: 600;">Direct Hotline</td>
+                  <td style="padding: 7px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;"><a href="tel:{contact_number}" style="color: #1A1D20; text-decoration: none; font-weight: 800;">{contact_number}</a></td>
                 </tr>
                 <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Facility / Location</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">{hospital}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500;">Direct Hotline</td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right; font-family: monospace;">{contact_number}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500;">Cooldown Status</td>
-                  <td style="padding: 8px 0; font-size: 12px; color: #1E7E34; font-weight: 700; text-align: right;">24h Cooldown Active</td>
+                  <td style="padding: 7px 0; font-size: 11.5px; color: #75808A; font-weight: 600;">Cooldown Status</td>
+                  <td style="padding: 7px 0; font-size: 12px; color: #16A34A; font-weight: 800; text-align: right;">✓ 24h Cooldown Active</td>
                 </tr>
               </table>
             </div>
             <div class="notice-box">
               <strong>Clinical Urgency Note Sent:</strong> {custom_message or 'Immediate voluntary blood donation requested.'}
-              <div style="margin-top: 8px; font-size: 11px; color: #667085;">
+              <div style="margin-top: 8px; font-size: 11px; color: #4B6354; line-height: 1.4;">
                 To protect enrolled donors from excessive alerts, follow-up notifications to this donor are locked for 24 hours across all devices.
               </div>
             </div>
@@ -1316,15 +1428,34 @@ def send_clinician_donor_roster_email(
         dist = d.get("distanceKm", 0.0)
         loc = d.get("location", "")
         rows_text += f"#{idx} | {name} ({btype}) | ~{dist:.1f} km | {loc} | {phone}\n"
+        call_link_html = f'''<div style="margin-top: 8px;">
+            <a href="tel:{phone}" style="display: block; width: 100%; box-sizing: border-box; text-align: center; padding: 7px 12px; background: #1A1D20; color: #FFFFFF !important; text-decoration: none; border-radius: 8px; font-size: 11.5px; font-weight: 700;">
+              📞 Call Donor: {phone}
+            </a>
+          </div>''' if phone else ''
         rows_html += f"""
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: bold;">#{idx}</td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; font-weight: 700;">{name}</td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #7A0C17; font-weight: bold;">{btype}</td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #047857; font-weight: bold;">{dist:.1f} km</td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #5A626A;">{loc}</td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; font-weight: 700; text-align: right;"><a href="tel:{phone}" style="color: #1A1D20; text-decoration: none;">{phone}</a></td>
-        </tr>
+        <div style="background: #FFFFFF; border: 1px solid #E8DFDC; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="vertical-align: middle;">
+                <span style="display: inline-block; padding: 2px 7px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 6px; font-size: 11px; font-weight: 800; color: #D72638; margin-right: 6px;">#{idx}</span>
+                <strong style="font-size: 13.5px; color: #1A1D20;">{name}</strong>
+                <span style="display: inline-block; margin-left: 6px; padding: 2px 7px; background: #7A0C17; color: #FFFFFF; border-radius: 6px; font-size: 10.5px; font-weight: 800;">Group {btype}</span>
+              </td>
+              <td align="right" style="vertical-align: middle; white-space: nowrap;">
+                <span style="font-size: 11px; font-weight: 700; color: #047857; background: #ECFDF5; border: 1px solid #A7F3D0; padding: 2px 8px; border-radius: 100px;">~{dist:.1f} km</span>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="2" style="padding-top: 6px;">
+                <div style="font-size: 11.5px; color: #5A626A; word-break: break-word;">
+                  📍 <span>{loc or 'Delhi NCR Region'}</span>
+                </div>
+                {call_link_html}
+              </td>
+            </tr>
+          </table>
+        </div>
         """
 
     text_body = f"BloodMatch Emergency Transfusion Network\nRanked Compatible Donor Roster for Group {recipient_blood_type}\n\n{rows_text}\nGenerated for {clinician_name}."
@@ -1334,17 +1465,28 @@ def send_clinician_donor_roster_email(
     <html lang="en">
     <head>
       <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="color-scheme" content="light dark">
+      <meta name="supported-color-schemes" content="light dark">
       <title>Emergency Donor Roster</title>
       <style>
-        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1A1D20; }}
-        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 36px 16px; box-sizing: border-box; }}
-        .card {{ max-width: 560px; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-radius: 20px; overflow: hidden; }}
-        .header {{ padding: 24px 32px 16px 32px; border-bottom: 1px solid #F5F1EF; }}
-        .brand-pill {{ display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 700; color: #D72638; text-transform: uppercase; }}
-        .content {{ padding: 32px; }}
-        .title {{ font-size: 22px; font-weight: 900; color: #1A1D20; margin: 0 0 10px 0; }}
-        .audit-card {{ background: #FAF8F7; border: 1px solid #D9C7C2; border-radius: 14px; padding: 16px 18px; margin: 20px 0; }}
-        .footer {{ border-top: 1px solid #F5F1EF; padding: 20px 32px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+        body {{ margin: 0; padding: 0; background-color: #F5F1EF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1A1D20; -webkit-font-smoothing: antialiased; }}
+        .wrapper {{ width: 100%; background-color: #F5F1EF; padding: 32px 16px; box-sizing: border-box; }}
+        .card {{ max-width: 560px; width: 100%; margin: 0 auto; background: #FFFFFF; border: 1px solid #D9C7C2; border-top: 4px solid #D72638; border-radius: 18px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.04); }}
+        .header {{ padding: 20px 24px 14px 24px; border-bottom: 1px solid #F5F1EF; }}
+        .brand-pill {{ display: inline-block; padding: 4px 10px; background: #FFF0F1; border: 1px solid #FFD4D7; border-radius: 100px; font-size: 11px; font-weight: 800; color: #D72638; text-transform: uppercase; }}
+        .content {{ padding: 24px; }}
+        .title {{ font-size: 20px; font-weight: 900; color: #1A1D20; margin: 0 0 8px 0; }}
+        .audit-card {{ background: #FAF8F7; border: 1px solid #EAE3E0; border-radius: 14px; padding: 14px; margin: 16px 0; }}
+        .footer {{ border-top: 1px solid #F5F1EF; padding: 18px 24px; background: #FAF8F7; font-size: 11px; color: #8C949D; line-height: 1.5; text-align: center; }}
+        @media only screen and (max-width: 600px) {{
+          .wrapper {{ padding: 12px 8px !important; }}
+          .card {{ border-radius: 14px !important; width: 100% !important; }}
+          .content {{ padding: 18px 12px !important; }}
+          .header {{ padding: 16px 14px 12px 14px !important; }}
+          .footer {{ padding: 14px 12px !important; }}
+          .audit-card {{ padding: 10px 8px !important; }}
+        }}
       </style>
     </head>
     <body>
@@ -1353,19 +1495,9 @@ def send_clinician_donor_roster_email(
           <div class="header"><span class="brand-pill">Emergency Donor Roster</span></div>
           <div class="content">
             <h1 class="title">Compatible Donors (Group {recipient_blood_type})</h1>
-            <p style="font-size: 13px; color: #5A626A;">The following voluntary donors have been verified and ranked by proximity to your search coordinates for emergency transfusion dispatch:</p>
+            <p style="font-size: 13px; color: #5A626A; margin: 0 0 16px 0; line-height: 1.5;">The following voluntary donors have been verified and ranked by proximity to your search coordinates for emergency transfusion dispatch:</p>
             <div class="audit-card">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                <tr style="border-bottom: 1.5px solid #D9C7C2;">
-                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">RANK</th>
-                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">NAME</th>
-                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">TYPE</th>
-                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">DISTANCE</th>
-                  <th style="padding: 6px 0; font-size: 10px; text-align: left; color: #7A0C17;">LOCALITY</th>
-                  <th style="padding: 6px 0; font-size: 10px; text-align: right; color: #7A0C17;">CONTACT</th>
-                </tr>
-                {rows_html}
-              </table>
+              {rows_html}
             </div>
           </div>
           <div class="footer">
@@ -1456,10 +1588,11 @@ def send_transfusion_fulfilled_emails(
     is_reserve = fulfilled_via_reserve or len(donors_to_notify) == 0
 
     # 1. Email to Requester / Clinician
+    clean_req_title = requester_name or "Clinician"
     if requester_email and "@" in requester_email:
         if is_reserve:
             req_subject = f"Transfusion Demand Closed: {patient_name} ({blood_type}) - Fulfilled via Clinical Reserve"
-            req_text = f"""Dear {requester_name or 'Clinician'},
+            req_text = f"""Dear {clean_req_title},
 
 Your emergency transfusion demand for patient {patient_name} ({blood_type}, {units_needed} Pints) at {hospital} has been marked as FULFILLED and closed via Alternative Clinical Reserve / External Stock.
 
@@ -1469,20 +1602,31 @@ BloodMatch Emergency Transfusion Network • Clinical Reserve Operations
 """
             req_html = f"""<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
-  .card {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }}
-  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #EFF6FF; color: #1E40AF; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
-  h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
-  p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; }}
-  .box {{ background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; color: #0369A1; }}
-  .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
-</style></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; -webkit-font-smoothing: antialiased; }}
+    .card {{ max-width: 540px; width: 100%; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); box-sizing: border-box; }}
+    .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #EFF6FF; color: #1E40AF; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
+    h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
+    p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; word-break: break-word; }}
+    .box {{ background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; color: #0369A1; word-break: break-word; }}
+    .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
+    @media only screen and (max-width: 600px) {{
+      body {{ padding: 10px 8px !important; }}
+      .card {{ padding: 20px 14px !important; border-radius: 12px !important; }}
+      h2 {{ font-size: 16.5px !important; }}
+    }}
+  </style>
+</head>
 <body>
   <div class="card">
     <div class="badge">✓ Closed via Clinical Reserve</div>
     <h2>Emergency Request Fulfilled via Alternative Reserve</h2>
-    <p>Dear {requester_name or 'Attending Clinician'},</p>
+    <p>Dear {clean_req_title},</p>
     <p>Your emergency transfusion demand has been fulfilled through hospital reserve/external supply and logged in the clinical ledger.</p>
     <div class="box">
       <strong>Patient:</strong> {patient_name} ({blood_type}, {units_needed} Pints)<br>
@@ -1498,7 +1642,7 @@ BloodMatch Emergency Transfusion Network • Clinical Reserve Operations
         else:
             donor_summary = ", ".join([f"{d['name']} ({d['blood_type']})" for d in donors_to_notify])
             req_subject = f"Transfusion Demand Fulfilled: {patient_name} ({blood_type})"
-            req_text = f"""Dear {requester_name or 'Clinician'},
+            req_text = f"""Dear {clean_req_title},
 
 Your emergency transfusion demand for patient {patient_name} ({blood_type}, {units_needed} Pints) at {hospital} has been marked as FULFILLED.
 
@@ -1511,20 +1655,31 @@ BloodMatch Emergency Transfusion Network • Clinical Operations
 """
             req_html = f"""<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
-  .card {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }}
-  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #DEF7EC; color: #03543F; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
-  h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
-  p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; }}
-  .box {{ background: #F7FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; }}
-  .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
-</style></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; -webkit-font-smoothing: antialiased; }}
+    .card {{ max-width: 540px; width: 100%; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); box-sizing: border-box; }}
+    .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #DEF7EC; color: #03543F; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
+    h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
+    p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; word-break: break-word; }}
+    .box {{ background: #F7FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; word-break: break-word; }}
+    .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
+    @media only screen and (max-width: 600px) {{
+      body {{ padding: 10px 8px !important; }}
+      .card {{ padding: 20px 14px !important; border-radius: 12px !important; }}
+      h2 {{ font-size: 16.5px !important; }}
+    }}
+  </style>
+</head>
 <body>
   <div class="card">
     <div class="badge">✓ Transfusion Fulfilled</div>
     <h2>Emergency Request Successfully Closed</h2>
-    <p>Dear {requester_name or 'Attending Clinician'},</p>
+    <p>Dear {clean_req_title},</p>
     <p>Your emergency transfusion call has been successfully fulfilled and logged into the clinical ledger.</p>
     <div class="box">
       <strong>Patient:</strong> {patient_name} ({blood_type}, {units_needed} Pints)<br>
@@ -1572,15 +1727,26 @@ BloodMatch Clinical Operations Network
 """
         donor_html = f"""<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
-  .card {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }}
-  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #FDE8E8; color: #9B1C1C; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
-  h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
-  p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; }}
-  .box {{ background: #FDF2F2; border: 1px solid #FBD5D5; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; color: #771D1D; }}
-  .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
-</style></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; -webkit-font-smoothing: antialiased; }}
+    .card {{ max-width: 540px; width: 100%; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #E2E8F0; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); box-sizing: border-box; }}
+    .badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; background: #FDE8E8; color: #9B1C1C; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; }}
+    h2 {{ color: #1A1D20; font-size: 18px; margin: 0 0 12px; font-weight: 800; }}
+    p {{ color: #4A5568; font-size: 13px; line-height: 1.6; margin: 0 0 14px; word-break: break-word; }}
+    .box {{ background: #FDF2F2; border: 1px solid #FBD5D5; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; color: #771D1D; word-break: break-word; }}
+    .footer {{ font-size: 11px; color: #718096; margin-top: 20px; text-align: center; }}
+    @media only screen and (max-width: 600px) {{
+      body {{ padding: 10px 8px !important; }}
+      .card {{ padding: 20px 14px !important; border-radius: 12px !important; }}
+      h2 {{ font-size: 16.5px !important; }}
+    }}
+  </style>
+</head>
 <body>
   <div class="card">
     <div class="badge">♥ Life-Saving Donor</div>
@@ -1662,22 +1828,31 @@ BloodMatch Emergency Transfusion Network • Live Proximity Tracking Node
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
-    .container {{ max-width: 560px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; border: 1px solid #E2E8F0; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; -webkit-font-smoothing: antialiased; }}
+    .container {{ max-width: 560px; width: 100%; margin: 0 auto; background: #FFFFFF; border-radius: 16px; border: 1px solid #E2E8F0; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }}
     .header {{ background: linear-gradient(135deg, #1A1D20 0%, #2D3748 100%); padding: 24px 28px; text-align: left; }}
     .brand {{ font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: #D72638; text-transform: uppercase; margin-bottom: 6px; }}
     .title {{ font-size: 18px; font-weight: 800; color: #FFFFFF; margin: 0; }}
-    .content {{ padding: 28px; }}
+    .content {{ padding: 24px; }}
     .radar-badge {{ display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; background: #ECFDF5; color: #065F46; font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 16px; border: 1px solid #A7F3D0; }}
-    .patient-box {{ background: #FDF2F2; border-left: 4px solid #D72638; padding: 14px 16px; border-radius: 8px; margin-bottom: 20px; }}
-    .donor-card {{ background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 18px; margin-bottom: 20px; }}
+    .patient-box {{ background: #FDF2F2; border-left: 4px solid #D72638; padding: 14px 16px; border-radius: 8px; margin-bottom: 18px; }}
+    .donor-card {{ background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; margin-bottom: 18px; }}
     .donor-table {{ width: 100%; border-collapse: collapse; }}
-    .donor-table td {{ padding: 8px 0; font-size: 13px; }}
+    .donor-table td {{ padding: 7px 0; font-size: 12.5px; }}
     .donor-label {{ color: #718096; font-weight: 600; width: 35%; }}
-    .donor-val {{ color: #1A1D20; font-weight: 700; }}
-    .btn {{ display: inline-block; padding: 12px 24px; background: #D72638; color: #FFFFFF !important; font-size: 13px; font-weight: 700; text-decoration: none; border-radius: 10px; margin-top: 8px; }}
-    .footer {{ background: #F8FAFC; padding: 16px 28px; font-size: 11px; color: #A0AEC0; text-align: center; border-top: 1px solid #EDF2F7; }}
+    .donor-val {{ color: #1A1D20; font-weight: 700; word-break: break-word; }}
+    .btn {{ display: inline-block; padding: 12px 20px; background: #D72638; color: #FFFFFF !important; font-size: 13px; font-weight: 700; text-decoration: none; border-radius: 10px; margin-top: 8px; text-align: center; box-sizing: border-box; }}
+    .footer {{ background: #F8FAFC; padding: 16px 24px; font-size: 11px; color: #A0AEC0; text-align: center; border-top: 1px solid #EDF2F7; }}
+    @media only screen and (max-width: 600px) {{
+      body {{ padding: 8px !important; }}
+      .header {{ padding: 18px 16px !important; }}
+      .content {{ padding: 16px 12px !important; }}
+      .btn {{ display: block !important; width: 100% !important; margin: 8px 0 !important; }}
+    }}
   </style>
 </head>
 <body>
