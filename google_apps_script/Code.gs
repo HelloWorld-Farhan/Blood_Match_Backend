@@ -69,7 +69,13 @@ function doGet(e) {
       "password_reset",
       "password_changed",
       "account_lockout",
-      "welcome_thankyou"
+      "welcome_thankyou",
+      "clinician_donor_roster",
+      "transfusion_fulfilled_requester",
+      "transfusion_fulfilled_donor",
+      "emergency_donor_dispatch",
+      "emergency_donor_dispatch_confirmation",
+      "live_tracking_match_alert"
     ]
   };
   
@@ -194,6 +200,21 @@ function buildEmailContent(action, name, payload) {
     case "donor_thankyou":
     case "donor_registration":
       return buildDonorThankYouEmail(name, payload);
+
+    case "clinician_donor_roster":
+    case "transfusion_fulfilled_requester":
+    case "transfusion_fulfilled_donor":
+    case "emergency_donor_dispatch":
+    case "emergency_donor_dispatch_confirmation":
+    case "live_tracking_match_alert":
+      if (payload.html_body && payload.subject) {
+        return {
+          subject: payload.subject,
+          textBody: payload.text_body || "",
+          htmlBody: payload.html_body
+        };
+      }
+      return null;
 
     default:
       return null;

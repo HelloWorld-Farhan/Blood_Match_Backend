@@ -1307,23 +1307,6 @@ def send_clinician_donor_roster_email(
     clinician_name = sanitize_recipient_name(clinician_name)
     subject = f"Clinical Emergency Donor Roster: {recipient_blood_type} Transfusion"
     
-    gas_payload = {
-        "to": clinician_email,
-        "name": clinician_name,
-        "recipient_blood_type": recipient_blood_type,
-        "patient_name": patient_name or "Emergency Transfusion Case",
-        "roster_items": roster_items,
-        "action": "clinician_donor_roster"
-    }
-    if pdf_base64:
-        gas_payload["pdf_base64"] = pdf_base64
-        gas_payload["pdf_filename"] = pdf_filename or f"BloodMatch_Emergency_Docket_{recipient_blood_type}.pdf"
-    if dispatch_id:
-        gas_payload["dispatch_id"] = dispatch_id
-
-    if _dispatch_google_apps_script("clinician_donor_roster", gas_payload):
-        return True
-
     rows_text = ""
     rows_html = ""
     for idx, d in enumerate(roster_items[:10], start=1):
@@ -1393,6 +1376,26 @@ def send_clinician_donor_roster_email(
     </body>
     </html>
     """
+
+    gas_payload = {
+        "to": clinician_email,
+        "name": clinician_name,
+        "recipient_blood_type": recipient_blood_type,
+        "patient_name": patient_name or "Emergency Transfusion Case",
+        "roster_items": roster_items,
+        "action": "clinician_donor_roster",
+        "subject": subject,
+        "text_body": text_body,
+        "html_body": html_body
+    }
+    if pdf_base64:
+        gas_payload["pdf_base64"] = pdf_base64
+        gas_payload["pdf_filename"] = pdf_filename or f"BloodMatch_Emergency_Docket_{recipient_blood_type}.pdf"
+    if dispatch_id:
+        gas_payload["dispatch_id"] = dispatch_id
+
+    if _dispatch_google_apps_script("clinician_donor_roster", gas_payload):
+        return True
 
     attachments = []
     if pdf_base64:
@@ -1536,7 +1539,18 @@ BloodMatch Emergency Transfusion Network • Clinical Operations
 </html>"""
 
         try:
-            results["requester_sent"] = _dispatch_smtp(req_subject, requester_email, req_text, req_html)
+            gas_req_payload = {
+                "to": requester_email,
+                "name": requester_name or "Clinician",
+                "subject": req_subject,
+                "text_body": req_text,
+                "html_body": req_html,
+                "action": "transfusion_fulfilled_requester"
+            }
+            if _dispatch_google_apps_script("transfusion_fulfilled_requester", gas_req_payload):
+                results["requester_sent"] = True
+            else:
+                results["requester_sent"] = _dispatch_smtp(req_subject, requester_email, req_text, req_html)
         except Exception as exc:
             logger.warning(f"Could not send fulfillment email to requester: {exc}")
 
@@ -1585,12 +1599,20 @@ BloodMatch Clinical Operations Network
 </body>
 </html>"""
         try:
-            if _dispatch_smtp(donor_subject, d_email, donor_text, donor_html):
+            gas_donor_payload = {
+                "to": d_email,
+                "name": d_name,
+                "subject": donor_subject,
+                "text_body": donor_text,
+                "html_body": donor_html,
+                "action": "transfusion_fulfilled_donor"
+            }
+            if _dispatch_google_apps_script("transfusion_fulfilled_donor", gas_donor_payload):
+                results["donors_sent"] += 1
+            elif _dispatch_smtp(donor_subject, d_email, donor_text, donor_html):
                 results["donors_sent"] += 1
         except Exception as exc:
             logger.warning(f"Could not send thanks email to donor {d_email}: {exc}")
-
-    return results
 
     return results
 
