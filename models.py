@@ -80,26 +80,57 @@ class UserModel(Base):
 
     def get_saved_phones(self) -> list:
         phones = []
+        seen_core_map = {}
+
+        def insert_or_upgrade(p_raw: str):
+            clean = (p_raw or "").strip()
+            if not clean:
+                return
+            digits = re.sub(r"\D", "", clean)
+            core10 = digits[-10:] if len(digits) >= 10 else digits
+            if not core10:
+                return
+            if core10 in seen_core_map:
+                idx = seen_core_map[core10]
+                existing = phones[idx]
+                if "+" in clean and "+" not in existing:
+                    phones[idx] = clean
+            else:
+                seen_core_map[core10] = len(phones)
+                phones.append(clean)
+
         if self.phone and self.phone.strip():
-            phones.append(self.phone.strip())
+            insert_or_upgrade(self.phone.strip())
         if self.saved_phones:
             try:
                 parsed = json.loads(self.saved_phones)
                 if isinstance(parsed, list):
                     for p in parsed:
-                        if p and isinstance(p, str) and p.strip() and p.strip() not in phones:
-                            phones.append(p.strip())
+                        if p and isinstance(p, str):
+                            insert_or_upgrade(p)
             except Exception:
                 for p in self.saved_phones.split(","):
-                    if p.strip() and p.strip() not in phones:
-                        phones.append(p.strip())
+                    insert_or_upgrade(p)
         return phones
 
     def add_saved_phone(self, new_phone: str) -> list:
-        current = self.get_saved_phones()
         clean = (new_phone or "").strip()
-        if clean and clean not in current:
-            current.append(clean)
+        current = self.get_saved_phones()
+        if clean:
+            digits = re.sub(r"\D", "", clean)
+            core10 = digits[-10:] if len(digits) >= 10 else digits
+            if core10:
+                found = False
+                for idx, existing in enumerate(current):
+                    e_digits = re.sub(r"\D", "", existing)
+                    e_core10 = e_digits[-10:] if len(e_digits) >= 10 else e_digits
+                    if e_core10 == core10:
+                        found = True
+                        if "+" in clean and "+" not in existing:
+                            current[idx] = clean
+                        break
+                if not found:
+                    current.append(clean)
         self.saved_phones = json.dumps(current)
         return current
 
