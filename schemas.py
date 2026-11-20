@@ -39,6 +39,11 @@ class EmergencyCreateRequest(BaseModel):
     status: str = "urgent"
     contact_person: str = Field(..., min_length=2)
     contact_phone: str = Field(..., min_length=5)
+    live_tracking: Optional[bool] = True
+
+class EmergencyLiveTrackingRequest(BaseModel):
+    live_tracking: bool
+    user_email: Optional[str] = None
 
 class EmergencyFulfillRequest(BaseModel):
     requester_email: Optional[str] = None

@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from typing import List, Optional
 
 import boto3
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, status, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, status, UploadFile, File, Form, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 from database import init_db, get_db, is_sqlite_fallback
 from models import (
+    generate_uuid,
     strip_honorific,
     UserModel,
     OtpTokenModel,
@@ -54,6 +55,7 @@ from schemas import (
     DonorSendOtpRequest,
     DonorCreateRequest,
     EmergencyCreateRequest,
+    EmergencyLiveTrackingRequest,
     EmergencyFulfillRequest,
     ClinicianProfileRequest,
     ProfileUpdateRequest,
@@ -99,7 +101,8 @@ from email_service import (
     send_account_deleted_confirmation_email,
     send_emergency_donor_dispatch_email,
     send_clinician_donor_roster_email,
-    send_transfusion_fulfilled_emails
+    send_transfusion_fulfilled_emails,
+    send_live_tracking_match_email
 )
 from storage_service import (
     process_avatar_image,
@@ -176,6 +179,83 @@ explicit_origins = [orig.strip() for orig in CORS_ORIGINS_RAW.split(",") if orig
 
 # Requirement 1: Fallback regex for modern hosting providers (Vercel, Cloudflare Pages/Workers, Netlify, localhost)
 ORIGIN_REGEX = r"^https?:\/\/(.*\.vercel\.app|.*\.pages\.dev|.*\.workers\.dev|.*\.netlify\.app|localhost|127\.0\.0\.1)(:\d+)?$"
+
+# Blood Group Compatibility Helper for Live Tracking
+BLOOD_CAN_RECEIVE_FROM = {
+    "O-": ["O-"],
+    "O+": ["O+", "O-"],
+    "A-": ["A-", "O-"],
+    "A+": ["A+", "A-", "O+", "O-"],
+    "B-": ["B-", "O-"],
+    "B+": ["B+", "B-", "O+", "O-"],
+    "AB-": ["AB-", "A-", "B-", "O-"],
+    "AB+": ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"]
+}
+
+def is_donor_compatible_for_request(donor_type: str, request_blood_type: str) -> bool:
+    d = (donor_type or "").upper().strip()
+    r = (request_blood_type or "").upper().strip()
+    return d in BLOOD_CAN_RECEIVE_FROM.get(r, [r])
+
+class ConnectionManager:
+    """Manages active WebSocket connections across multi-device clinical clients."""
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        logger.info(f"WebSocket client connected. Active: {len(self.active_connections)}")
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            logger.info(f"WebSocket client disconnected. Active: {len(self.active_connections)}")
+
+    async def broadcast(self, message: dict):
+        disconnected = []
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_json(message)
+            except Exception:
+                disconnected.append(connection)
+        for conn in disconnected:
+            self.disconnect(conn)
+
+ws_manager = ConnectionManager()
+
+def safe_broadcast(message: dict):
+    """Safely broadcasts WebSocket messages across async and sync thread boundaries."""
+    try:
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            asyncio.create_task(ws_manager.broadcast(message))
+        else:
+            asyncio.run(ws_manager.broadcast(message))
+    except Exception:
+        pass
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "ping":
+                    await websocket.send_json({"type": "pong", "timestamp": time.time()})
+            except Exception:
+                pass
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
+
 
 # Cloudflare R2 Object Storage Configuration (Strictly from Environment Variables)
 R2_ENDPOINT = os.getenv("R2_ENDPOINT", "")
@@ -2967,6 +3047,7 @@ def send_donor_otp(
 @app.post("/api/donors", tags=["Donors"], status_code=status.HTTP_201_CREATED)
 def register_donor(
     payload: DonorCreateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     donor_email = payload.email.strip().lower()
@@ -3073,6 +3154,59 @@ def register_donor(
         )
     except Exception as exc:
         logger.warning(f"Donor thank you email dispatch failed: {exc}")
+
+    # Live Tracking Automated Matching & Direct Clinical Alerts
+    try:
+        active_emergencies = db.query(EmergencyRequestModel).filter(
+            EmergencyRequestModel.status.in_(["urgent", "pending", "critical"]),
+            EmergencyRequestModel.live_tracking == True
+        ).all()
+
+        donor_loc = new_donor.location or new_donor.city or "Delhi NCR"
+        for er in active_emergencies:
+            if is_donor_compatible_for_request(new_donor.blood_type, er.blood_type):
+                logger.info(f"Live Tracking Match! Donor {new_donor.name} ({new_donor.blood_type}) matched emergency {er.id} ({er.blood_type})")
+                
+                # 1. Automated direct email alert to clinician
+                target_clinician_email = er.user_email
+                if target_clinician_email:
+                    background_tasks.add_task(
+                        send_live_tracking_match_email,
+                        clinician_email=target_clinician_email,
+                        clinician_name=er.contact_person or "Emergency Clinician",
+                        patient_name=er.patient_name,
+                        blood_type=er.blood_type,
+                        request_id=er.id,
+                        donor_name=new_donor.name,
+                        donor_blood_type=new_donor.blood_type,
+                        donor_phone=new_donor.phone,
+                        donor_email=new_donor.email,
+                        donor_location=donor_loc
+                    )
+
+                # 2. Targeted TransfusionAlertModel record for the notification bell panel
+                match_alert = TransfusionAlertModel(
+                    creator_email=email_clean,
+                    donor_id=new_donor.id,
+                    blood_type=new_donor.blood_type,
+                    donor_name=new_donor.name,
+                    location=donor_loc,
+                    title=f"🚨 Live Match: Compatible {new_donor.blood_type} Donor for Patient {er.patient_name}",
+                    message=f"Live Tracking radar matched voluntary donor {new_donor.name} ({new_donor.blood_type}) for urgent request {er.id} in {donor_loc}. Contact: {new_donor.phone}."
+                )
+                db.add(match_alert)
+                db.commit()
+
+                # 3. Real-time WebSocket broadcast to all connected devices
+                safe_broadcast({
+                    "type": "COMPATIBLE_DONOR_ARRIVED",
+                    "request_id": er.id,
+                    "patient_name": er.patient_name,
+                    "blood_type": er.blood_type,
+                    "donor": new_donor.to_dict()
+                })
+    except Exception as match_err:
+        logger.warning(f"Live tracking donor matching notice: {match_err}")
 
     return new_donor.to_dict()
 
@@ -3199,9 +3333,12 @@ def create_emergency_request(
             existing.status = payload.status or existing.status
             existing.contact_person = clean_contact
             existing.contact_phone = payload.contact_phone
+            if payload.live_tracking is not None:
+                existing.live_tracking = payload.live_tracking
             db.commit()
             if email_clean:
                 sync_user_state_to_r2(email_clean, db)
+            safe_broadcast({"type": "EMERGENCY_UPDATED", "request": existing.to_dict()})
             return existing.to_dict()
 
     req = EmergencyRequestModel(
@@ -3217,7 +3354,8 @@ def create_emergency_request(
         urgency=payload.urgency or "CRITICAL",
         status=payload.status or "urgent",
         contact_person=clean_contact,
-        contact_phone=payload.contact_phone
+        contact_phone=payload.contact_phone,
+        live_tracking=payload.live_tracking if payload.live_tracking is not None else True
     )
     db.add(req)
     db.commit()
@@ -3225,7 +3363,44 @@ def create_emergency_request(
     if email_clean:
         sync_user_state_to_r2(email_clean, db)
 
+    safe_broadcast({"type": "EMERGENCY_CREATED", "request": req.to_dict()})
+
     return req.to_dict()
+
+@app.patch("/api/emergency/{request_id}/live-tracking", tags=["Emergency"])
+async def toggle_emergency_live_tracking(
+    request_id: str,
+    payload: EmergencyLiveTrackingRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Toggles live tracking radar status for an emergency request and synchronizes state
+    across DB, Cloudflare R2, and all connected devices via WebSockets.
+    """
+    req = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency request not found.")
+
+    req.live_tracking = bool(payload.live_tracking)
+    db.commit()
+
+    target_email = req.user_email or (payload.user_email.strip().lower() if payload.user_email else None)
+    if target_email:
+        sync_user_state_to_r2(target_email, db)
+
+    await ws_manager.broadcast({
+        "type": "LIVE_TRACKING_TOGGLED",
+        "request_id": req.id,
+        "live_tracking": req.live_tracking,
+        "status": req.status
+    })
+
+    return {
+        "ok": True,
+        "request_id": req.id,
+        "live_tracking": req.live_tracking,
+        "message": f"Live tracking for request {req.id} is now {'ON' if req.live_tracking else 'OFF'}."
+    }
 
 @app.post("/api/emergency/{request_id}/fulfill", tags=["Emergency"])
 def fulfill_emergency_request(
@@ -3243,11 +3418,18 @@ def fulfill_emergency_request(
     req.matched_donor_id = payload.donor_id or req.matched_donor_id
     req.fulfilled_by_donor_name = payload.donor_name
     req.fulfilled_by_donor_email = payload.donor_email.strip().lower()
+    req.live_tracking = False  # Turn off live tracking once fulfilled
     db.commit()
 
     target_email = req.user_email or (payload.requester_email.strip().lower() if payload.requester_email else None)
     if target_email:
         sync_user_state_to_r2(target_email, db)
+
+    safe_broadcast({
+        "type": "EMERGENCY_FULFILLED",
+        "request_id": req.id,
+        "request": req.to_dict()
+    })
 
     # Dispatch thank you and fulfillment completion emails in background
     background_tasks.add_task(

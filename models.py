@@ -379,6 +379,7 @@ class EmergencyRequestModel(Base):
     fulfilled_at = Column(DateTime, nullable=True)
     fulfilled_by_donor_name = Column(String(100), nullable=True)
     fulfilled_by_donor_email = Column(String(120), nullable=True)
+    live_tracking = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -400,6 +401,8 @@ class EmergencyRequestModel(Base):
             "fulfilled_at": self.fulfilled_at.isoformat() if self.fulfilled_at else None,
             "fulfilled_by_donor_name": self.fulfilled_by_donor_name,
             "fulfilled_by_donor_email": self.fulfilled_by_donor_email,
+            "live_tracking": bool(self.live_tracking) if self.live_tracking is not None else True,
+            "liveTracking": bool(self.live_tracking) if self.live_tracking is not None else True,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 

@@ -1369,3 +1369,148 @@ def send_transfusion_fulfilled_emails(
             logger.warning(f"Could not send thanks email to donor: {exc}")
 
     return results
+
+def send_live_tracking_match_email(
+    clinician_email: str,
+    clinician_name: str,
+    patient_name: str,
+    blood_type: str,
+    request_id: str,
+    donor_name: str,
+    donor_blood_type: str,
+    donor_phone: str,
+    donor_email: str,
+    donor_location: str
+) -> bool:
+    """
+    Dispatches automated instant alert to the clinician/requester when Live Tracking detects
+    a newly registered compatible voluntary donor.
+    """
+    clinician_name = sanitize_recipient_name(clinician_name) or "Emergency Clinician"
+    donor_name = sanitize_recipient_name(donor_name)
+    subject = f"🚨 Compatible Blood Arrived! Live Tracking Match for Patient {patient_name} ({blood_type})"
+
+    text_body = f"""LIVE TRACKING ALERT: COMPATIBLE BLOOD HAS ARRIVED
+
+Dear {clinician_name},
+
+A certified voluntary donor matching your active emergency request has just registered into the BloodMatch network!
+
+Patient: {patient_name} ({blood_type})
+Emergency Request ID: {request_id}
+
+MATCHED COMPATIBLE DONOR:
+- Name: {donor_name}
+- Blood Group: {donor_blood_type} (Compatible with {blood_type})
+- Phone: {donor_phone}
+- Email: {donor_email}
+- Location: {donor_location}
+
+You can contact this donor immediately or view their dossier on your Emergency Triage Board:
+https://blood-match-software.bloodmatch-support.workers.dev/dashboard/emergency
+
+BloodMatch Emergency Transfusion Network • Live Proximity Tracking Node
+"""
+
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; }}
+    .container {{ max-width: 560px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; border: 1px solid #E2E8F0; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }}
+    .header {{ background: linear-gradient(135deg, #1A1D20 0%, #2D3748 100%); padding: 24px 28px; text-align: left; }}
+    .brand {{ font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: #D72638; text-transform: uppercase; margin-bottom: 6px; }}
+    .title {{ font-size: 18px; font-weight: 800; color: #FFFFFF; margin: 0; }}
+    .content {{ padding: 28px; }}
+    .radar-badge {{ display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; background: #ECFDF5; color: #065F46; font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 16px; border: 1px solid #A7F3D0; }}
+    .patient-box {{ background: #FDF2F2; border-left: 4px solid #D72638; padding: 14px 16px; border-radius: 8px; margin-bottom: 20px; }}
+    .donor-card {{ background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 18px; margin-bottom: 20px; }}
+    .donor-table {{ width: 100%; border-collapse: collapse; }}
+    .donor-table td {{ padding: 8px 0; font-size: 13px; }}
+    .donor-label {{ color: #718096; font-weight: 600; width: 35%; }}
+    .donor-val {{ color: #1A1D20; font-weight: 700; }}
+    .btn {{ display: inline-block; padding: 12px 24px; background: #D72638; color: #FFFFFF !important; font-size: 13px; font-weight: 700; text-decoration: none; border-radius: 10px; margin-top: 8px; }}
+    .footer {{ background: #F8FAFC; padding: 16px 28px; font-size: 11px; color: #A0AEC0; text-align: center; border-top: 1px solid #EDF2F7; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">BloodMatch Emergency Operations</div>
+      <div class="title">🚨 Compatible Blood Arrived (Live Tracking Alert)</div>
+    </div>
+    <div class="content">
+      <div class="radar-badge">● Live Proximity Radar Match</div>
+      <p style="font-size: 14px; color: #2D3748; line-height: 1.5; margin-top: 0;">
+        Dear <strong>{clinician_name}</strong>,<br>
+        Your active Live Tracking radar has detected that a compatible voluntary donor has just enrolled for patient <strong>{patient_name}</strong>!
+      </p>
+
+      <div class="patient-box">
+        <div style="font-size: 11px; font-weight: 700; color: #9B1C1C; text-transform: uppercase;">Emergency Request #{request_id}</div>
+        <div style="font-size: 14px; font-weight: 800; color: #1A1D20; margin-top: 2px;">Patient: {patient_name} &bull; Required Blood: <span style="color: #D72638;">{blood_type}</span></div>
+      </div>
+
+      <div class="donor-card">
+        <div style="font-size: 12px; font-weight: 800; color: #1A1D20; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #E2E8F0; padding-bottom: 6px;">
+          Certified Compatible Donor Details
+        </div>
+        <table class="donor-table">
+          <tr>
+            <td class="donor-label">Donor Name</td>
+            <td class="donor-val">{donor_name}</td>
+          </tr>
+          <tr>
+            <td class="donor-label">Blood Group</td>
+            <td class="donor-val" style="color: #059669;">{donor_blood_type} (Compatible with {blood_type})</td>
+          </tr>
+          <tr>
+            <td class="donor-label">Contact Phone</td>
+            <td class="donor-val"><a href="tel:{donor_phone}" style="color: #D72638; text-decoration: none;">{donor_phone}</a></td>
+          </tr>
+          <tr>
+            <td class="donor-label">Email Address</td>
+            <td class="donor-val"><a href="mailto:{donor_email}" style="color: #2563EB; text-decoration: none;">{donor_email}</a></td>
+          </tr>
+          <tr>
+            <td class="donor-label">Location</td>
+            <td class="donor-val">{donor_location}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="text-align: center; margin-top: 18px;">
+        <a href="tel:{donor_phone}" class="btn" style="background: #059669; margin-right: 8px;">📞 Call Donor Directly</a>
+        <a href="https://blood-match-software.bloodmatch-support.workers.dev/dashboard/emergency" class="btn">View Triage Board</a>
+      </div>
+    </div>
+    <div class="footer">
+      BloodMatch Network &bull; Automated Live Tracking Dispatch &bull; Sync ID #{request_id}
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+    gas_payload = {
+        "to": clinician_email,
+        "name": clinician_name,
+        "patient_name": patient_name,
+        "blood_type": blood_type,
+        "request_id": request_id,
+        "donor_name": donor_name,
+        "donor_blood_type": donor_blood_type,
+        "donor_phone": donor_phone,
+        "donor_email": donor_email,
+        "donor_location": donor_location,
+        "action": "live_tracking_match_alert",
+        "html_body": html_body,
+        "subject": subject
+    }
+
+    if _dispatch_google_apps_script("live_tracking_match_alert", gas_payload):
+        return True
+
+    return _dispatch_smtp(subject, clinician_email, text_body, html_body)
+
