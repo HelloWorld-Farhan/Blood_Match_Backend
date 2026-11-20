@@ -138,7 +138,10 @@ def init_db():
                         try:
                             if is_sqlite_fallback:
                                 col_type = str(col.type.compile(engine.dialect)).replace("NOT NULL", "").strip()
-                                default_clause = "DEFAULT 0" if isinstance(col.type, (Boolean, Integer)) else "DEFAULT NULL"
+                                if col.name == "live_tracking":
+                                    default_clause = "DEFAULT 1"
+                                else:
+                                    default_clause = "DEFAULT 0" if isinstance(col.type, (Boolean, Integer)) else "DEFAULT NULL"
                                 with engine.begin() as conn:
                                     conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type} {default_clause}"))
                             else:

@@ -491,7 +491,8 @@ def reconcile_user_from_r2(user_email: str, db: Session) -> Optional[dict]:
                     units_needed=int(req.get("units_needed") or req.get("unitsNeeded") or 1),
                     status=req.get("status") or "urgent",
                     contact_person=req.get("contact_person") or req.get("contactName") or "Attending Nurse",
-                    contact_phone=req.get("contact_phone") or req.get("contactNumber") or "+1 555-0199"
+                    contact_phone=req.get("contact_phone") or req.get("contactNumber") or "+1 555-0199",
+                    live_tracking=bool(req.get("live_tracking", req.get("liveTracking", True)))
                 ))
 
         db.commit()
@@ -3477,12 +3478,19 @@ async def toggle_emergency_live_tracking(
     target_email = req.user_email or (payload.user_email.strip().lower() if payload.user_email else None)
     if target_email:
         sync_user_state_to_r2(target_email, db)
+    try:
+        from r2_db_sync import sync_db_to_r2
+        from database import sqlite_path
+        sync_db_to_r2(sqlite_path, force=True)
+    except Exception:
+        pass
 
-    await ws_manager.broadcast({
+    safe_broadcast({
         "type": "LIVE_TRACKING_TOGGLED",
         "request_id": req.id,
         "live_tracking": req.live_tracking,
-        "status": req.status
+        "status": req.status,
+        "user_email": target_email
     })
 
     return {
