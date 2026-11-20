@@ -40,11 +40,11 @@ def test_dispatch_alert_cooldown_and_confirmation():
         "patient_name": "Emergency Recipient Alpha",
         "hospital": "Connaught Place Emergency Center",
         "hospital_city": "Delhi",
-        "contact_number": "+918851860838",
+        "contact_number": "+919876543210",
         "custom_message": "Immediate voluntary blood donation needed.",
-        "requester_name": "Farhan Khalid",
+        "requester_name": "Dr. Clinical Lead",
         "requester_email": "clinician_test@bloodmatch.org",
-        "requester_phone": "+918851860838"
+        "requester_phone": "+919876543210"
     }
 
     res1 = client.post("/api/emergency/dispatch-donor", json=payload)
