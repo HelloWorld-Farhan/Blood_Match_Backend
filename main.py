@@ -3504,15 +3504,36 @@ async def toggle_emergency_live_tracking(
     across DB, Cloudflare R2, and all connected devices via WebSockets.
     """
     req = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == request_id).first()
-    if not req:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency request not found.")
+    now_ts = float(payload.updated_at) if payload.updated_at else (time.time() * 1000)
+    target_email = payload.user_email.strip().lower() if payload.user_email else (req.user_email.strip().lower() if req and req.user_email else None)
 
-    req.live_tracking = bool(payload.live_tracking)
+    if not req:
+        req = EmergencyRequestModel(
+            id=request_id,
+            user_email=target_email,
+            patient_name="Emergency Patient",
+            hospital="Emergency Trauma Network",
+            blood_type="O+",
+            units_needed=1,
+            urgency="CRITICAL",
+            status="urgent",
+            contact_person="Trauma Desk",
+            contact_phone="+91 98765 43210",
+            live_tracking=bool(payload.live_tracking),
+            live_tracking_updated_at=now_ts
+        )
+        db.add(req)
+    else:
+        req.live_tracking = bool(payload.live_tracking)
+        req.live_tracking_updated_at = now_ts
+        if target_email and not req.user_email:
+            req.user_email = target_email
+
     db.commit()
 
-    target_email = req.user_email or (payload.user_email.strip().lower() if payload.user_email else None)
-    if target_email:
-        sync_user_state_to_r2(target_email, db)
+    active_user_email = req.user_email or target_email
+    if active_user_email:
+        sync_user_state_to_r2(active_user_email, db)
     try:
         from r2_db_sync import sync_db_to_r2
         from database import sqlite_path
@@ -3524,14 +3545,16 @@ async def toggle_emergency_live_tracking(
         "type": "LIVE_TRACKING_TOGGLED",
         "request_id": req.id,
         "live_tracking": req.live_tracking,
+        "live_tracking_updated_at": now_ts,
         "status": req.status,
-        "user_email": target_email
+        "user_email": active_user_email
     })
 
     return {
         "ok": True,
         "request_id": req.id,
         "live_tracking": req.live_tracking,
+        "live_tracking_updated_at": now_ts,
         "message": f"Live tracking for request {req.id} is now {'ON' if req.live_tracking else 'OFF'}."
     }
 

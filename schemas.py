@@ -44,6 +44,7 @@ class EmergencyCreateRequest(BaseModel):
 class EmergencyLiveTrackingRequest(BaseModel):
     live_tracking: bool
     user_email: Optional[str] = None
+    updated_at: Optional[float] = None
 
 class EmergencyFulfillRequest(BaseModel):
     requester_email: Optional[str] = None
