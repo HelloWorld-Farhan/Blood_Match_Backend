@@ -30,6 +30,56 @@ function myFunction() {
   return testEmailWebhook();
 }
 
+function testFulfillRequesterEmail() {
+  var currentEmail = Session.getActiveUser().getEmail();
+  var recipient = currentEmail ? currentEmail : "test@bloodmatch.io";
+  
+  Logger.log("Testing Transfusion Fulfilled Requester Email to: " + recipient);
+  
+  var mockEvent = {
+    postData: {
+      contents: JSON.stringify({
+        action: "transfusion_fulfilled_requester",
+        to: recipient,
+        name: "Farhan Khalid",
+        patient_name: "Emergency Patient",
+        blood_type: "B+",
+        units_needed: 2,
+        hospital: "Emergency Trauma Network, Delhi NCR",
+        donor_name: "Priority Lifesaver",
+        fulfilled_via_reserve: false
+      })
+    }
+  };
+  
+  var result = doPost(mockEvent);
+  return result.getContent();
+}
+
+function testFulfillDonorEmail() {
+  var currentEmail = Session.getActiveUser().getEmail();
+  var recipient = currentEmail ? currentEmail : "test@bloodmatch.io";
+  
+  Logger.log("Testing Transfusion Fulfilled Donor Gratitude Email to: " + recipient);
+  
+  var mockEvent = {
+    postData: {
+      contents: JSON.stringify({
+        action: "transfusion_fulfilled_donor",
+        to: recipient,
+        name: "Priority Lifesaver",
+        patient_name: "Emergency Patient",
+        blood_type: "B+",
+        hospital: "Emergency Trauma Network, Delhi NCR",
+        donor_blood_type: "B+"
+      })
+    }
+  };
+  
+  var result = doPost(mockEvent);
+  return result.getContent();
+}
+
 function testEmailWebhook() {
   var currentEmail = Session.getActiveUser().getEmail();
   var recipient = currentEmail ? currentEmail : "test@bloodmatch.io";
@@ -201,11 +251,49 @@ function buildEmailContent(action, name, payload) {
     case "donor_registration":
       return buildDonorThankYouEmail(name, payload);
 
-    case "clinician_donor_roster":
     case "transfusion_fulfilled_requester":
+    case "transfusion_fulfilled":
+    case "request_fulfilled":
+      if (payload.html_body && payload.subject) {
+        return {
+          subject: payload.subject,
+          textBody: payload.text_body || "",
+          htmlBody: payload.html_body
+        };
+      }
+      return buildTransfusionFulfilledRequesterEmail(name, payload);
+
     case "transfusion_fulfilled_donor":
+    case "donor_gratitude":
+      if (payload.html_body && payload.subject) {
+        return {
+          subject: payload.subject,
+          textBody: payload.text_body || "",
+          htmlBody: payload.html_body
+        };
+      }
+      return buildTransfusionFulfilledDonorEmail(name, payload);
+
     case "emergency_donor_dispatch":
+      if (payload.html_body && payload.subject) {
+        return {
+          subject: payload.subject,
+          textBody: payload.text_body || "",
+          htmlBody: payload.html_body
+        };
+      }
+      return buildEmergencyDonorDispatchEmail(name, payload);
+
     case "emergency_donor_dispatch_confirmation":
+      if (payload.html_body && payload.subject) {
+        return {
+          subject: payload.subject,
+          textBody: payload.text_body || "",
+          htmlBody: payload.html_body
+        };
+      }
+      return buildEmergencyDonorDispatchConfirmationEmail(name, payload);
+
     case "live_tracking_match_alert":
       if (payload.html_body && payload.subject) {
         return {
@@ -214,7 +302,17 @@ function buildEmailContent(action, name, payload) {
           htmlBody: payload.html_body
         };
       }
-      return null;
+      return buildLiveTrackingMatchAlertEmail(name, payload);
+
+    case "clinician_donor_roster":
+      if (payload.html_body && payload.subject) {
+        return {
+          subject: payload.subject,
+          textBody: payload.text_body || "",
+          htmlBody: payload.html_body
+        };
+      }
+      return buildClinicianDonorRosterEmail(name, payload);
 
     default:
       return null;
@@ -626,6 +724,341 @@ function buildDonorThankYouEmail(name, payload) {
     subject: subject,
     textBody: textBody,
     htmlBody: wrapHtmlFrame(htmlContent, "Voluntary Donor Registration Confirmed")
+  };
+}
+
+/**
+ * 9. Transfusion Fulfilled Requester Notification
+ */
+function buildTransfusionFulfilledRequesterEmail(name, payload) {
+  var patientName = payload.patient_name || "Emergency Patient";
+  var bloodType = payload.blood_type || "RBC";
+  var units = payload.units_needed || 1;
+  var hospital = payload.hospital || "Emergency Trauma Network";
+  var donorName = payload.donor_name || (payload.fulfilled_via_reserve ? "Alternative Clinical Reserve / External Stock" : "Voluntary Donor Network");
+  var subject = payload.subject || ("✓ Transfusion Fulfilled: Emergency Request Closed (" + patientName + " - Group " + bloodType + ")");
+
+  var textBody =
+    "BloodMatch Emergency Transfusion Network\n" +
+    "Transfusion Fulfilled: Case Successfully Closed\n\n" +
+    "Dear " + name + ",\n\n" +
+    "Your emergency transfusion call has been successfully fulfilled and logged into the active clinical ledger.\n\n" +
+    "Patient: " + patientName + " (" + bloodType + ", " + units + " Pints)\n" +
+    "Facility: " + hospital + "\n" +
+    "Fulfilled By Lifesaver(s): " + donorName + "\n" +
+    "Status: Case Logged & Transfusion Completed\n\n" +
+    "Heartfelt gratitude notices have been dispatched to all participating voluntary lifesavers.\n\n" +
+    "BloodMatch Emergency Transfusion Network • Case Logged & Fulfilled";
+
+  var htmlContent =
+    '<div class="header"><span class="brand-pill" style="color: #065F46; background: #ECFDF5; border-color: #A7F3D0;">✓ Transfusion Fulfilled</span></div>' +
+    '<div class="content">' +
+      '<h1 class="title">Emergency Request Successfully Closed</h1>' +
+      '<div class="greeting">Dear ' + escapeHtml(name) + ',</div>' +
+      '<p class="paragraph">Your emergency transfusion call has been successfully fulfilled and logged into the active clinical ledger.</p>' +
+      '<div class="audit-card">' +
+        '<div class="audit-title" style="color: #065F46; margin-bottom: 12px;">Transfusion Completion Summary</div>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Patient / Case</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(patientName) + ' (' + escapeHtml(bloodType) + ', ' + escapeHtml(units) + ' Pts)</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Hospital Facility</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(hospital) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Fulfilled By Lifesaver(s)</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #065F46; font-weight: 700; text-align: right;">' + escapeHtml(donorName) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Clinical Status</td>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #065F46; font-weight: 700; text-align: right;">Case Logged &amp; Transfusion Completed</td>' +
+          '</tr>' +
+        '</table>' +
+      '</div>' +
+      '<div class="notice-box" style="background: #F0FDF4; border-color: #10B981; color: #166534;">' +
+        '<strong>Lifesaver Acknowledgement:</strong> Sincere gratitude notices have been dispatched to all participating voluntary lifesavers.' +
+      '</div>' +
+    '</div>' +
+    '<div class="footer">' +
+      'BloodMatch Emergency Transfusion Network • Case Logged &amp; Fulfilled<br>' +
+      'Automated Clinical Dispatch Gateway' +
+    '</div>';
+
+  return {
+    subject: subject,
+    textBody: textBody,
+    htmlBody: wrapHtmlFrame(htmlContent, "Transfusion Request Fulfilled")
+  };
+}
+
+/**
+ * 10. Transfusion Fulfilled Donor Gratitude Notice
+ */
+function buildTransfusionFulfilledDonorEmail(name, payload) {
+  var patientName = payload.patient_name || "Emergency Patient";
+  var bloodType = payload.blood_type || "RBC";
+  var donorGroup = payload.donor_blood_type || payload.blood_type || "Donor";
+  var hospital = payload.hospital || "Emergency Trauma Network";
+  var subject = payload.subject || "Thank You for Saving a Life: Blood Transfusion Completed";
+
+  var textBody =
+    "BloodMatch Emergency Transfusion Network\n" +
+    "Thank You for Your Voluntary Blood Donation\n\n" +
+    "Dear " + name + ",\n\n" +
+    "We are writing to express our sincere clinical gratitude. Your voluntary donation has successfully fulfilled the urgent transfusion demand for patient " + patientName + " (" + bloodType + ").\n\n" +
+    "Transfusion Record: Patient " + patientName + " • Group " + bloodType + "\n" +
+    "Hospital Facility: " + hospital + "\n" +
+    "Donor Attribution: " + name + " (Group " + donorGroup + ")\n" +
+    "Status: Successfully Transfused & Completed\n\n" +
+    "Your selfless contribution and swift mobilization truly helped save a life today.\n\n" +
+    "With deepest gratitude,\n" +
+    "BloodMatch Voluntary Donor Network";
+
+  var htmlContent =
+    '<div class="header"><span class="brand-pill" style="color: #7A0C17; background: #FFF0F1; border-color: #FFD4D7;">♥ Life-Saving Donor</span></div>' +
+    '<div class="content">' +
+      '<h1 class="title">Thank You for Your Blood Donation</h1>' +
+      '<div class="greeting">Dear ' + escapeHtml(name) + ',</div>' +
+      '<p class="paragraph">We are writing to express our sincere clinical gratitude. Your voluntary blood donation has successfully fulfilled the urgent transfusion demand for patient <strong>' + escapeHtml(patientName) + '</strong> (' + escapeHtml(bloodType) + ').</p>' +
+      '<div class="audit-card">' +
+        '<div class="audit-title" style="margin-bottom: 12px;">Transfusion Honor Roll</div>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Transfusion Record</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">Patient ' + escapeHtml(patientName) + ' • Group ' + escapeHtml(bloodType) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Hospital Facility</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(hospital) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Donor Attribution</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: 700; text-align: right;">' + escapeHtml(name) + ' (' + escapeHtml(donorGroup) + ')</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Status</td>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #065F46; font-weight: 700; text-align: right;">Successfully Transfused &amp; Completed</td>' +
+          '</tr>' +
+        '</table>' +
+      '</div>' +
+      '<div class="notice-box" style="background: #FDF9F8; border-color: #D72638; color: #1A1D20;">' +
+        '<strong>Life-Saving Impact:</strong> Your selfless contribution and swift mobilization truly helped save a life today. The clinical team and patient family extend their deepest thanks.' +
+      '</div>' +
+    '</div>' +
+    '<div class="footer">' +
+      'BloodMatch Voluntary Donor Network • Clinical Gratitude Node<br>' +
+      'Certified Voluntary Donor Registry' +
+    '</div>';
+
+  return {
+    subject: subject,
+    textBody: textBody,
+    htmlBody: wrapHtmlFrame(htmlContent, "Thank You, Lifesaver")
+  };
+}
+
+/**
+ * 11. Emergency Donor Dispatch Alert
+ */
+function buildEmergencyDonorDispatchEmail(name, payload) {
+  var patientName = payload.patient_name || "Emergency Patient";
+  var bloodType = payload.recipient_blood_type || payload.blood_type || "Compatible";
+  var facility = payload.hospital || payload.facility || "Emergency Trauma Center";
+  var contactName = payload.contact_name || "Attending Clinician";
+  var contactPhone = payload.contact_phone || payload.phone || "Emergency Desk";
+  var subject = payload.subject || ("🚨 URGENT BLOOD ALERT: Compatible " + bloodType + " Needed Immediately");
+
+  var textBody =
+    "BloodMatch Emergency Transfusion Network\n" +
+    "URGENT TRANSFUSION MOBILIZATION CALL\n\n" +
+    "Dear " + name + ",\n\n" +
+    "An urgent clinical transfusion call has been matched to your verified standby pledge.\n\n" +
+    "Recipient Blood Type: " + bloodType + "\n" +
+    "Patient / Case: " + patientName + "\n" +
+    "Facility / Location: " + facility + "\n" +
+    "Emergency Contact: " + contactName + " (" + contactPhone + ")\n\n" +
+    "If you are available to donate, please call the emergency contact immediately.\n\n" +
+    "BloodMatch Emergency Transfusion Network";
+
+  var htmlContent =
+    '<div class="header"><span class="brand-pill" style="color: #7A0C17; background: #FFF0F1; border-color: #FFD4D7;">🚨 Emergency Blood Alert</span></div>' +
+    '<div class="content">' +
+      '<h1 class="title" style="color: #D72638;">Immediate Transfusion Mobilization</h1>' +
+      '<div class="greeting">Dear ' + escapeHtml(name) + ',</div>' +
+      '<p class="paragraph">An emergency transfusion call in your area has been matched to your verified standby donor pledge for Group <strong>' + escapeHtml(bloodType) + '</strong>.</p>' +
+      '<div class="audit-card">' +
+        '<div class="audit-title" style="color: #D72638; margin-bottom: 12px;">Emergency Case Details</div>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Target Blood Group</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #D72638; font-weight: 800; text-align: right;">Group ' + escapeHtml(bloodType) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Patient / Case</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(patientName) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Hospital Facility</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(facility) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Emergency Coordinator</td>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(contactName) + ' • ' + escapeHtml(contactPhone) + '</td>' +
+          '</tr>' +
+        '</table>' +
+      '</div>' +
+      '<div class="notice-box" style="background: #FFF5F5; border-color: #D72638; color: #1A1D20;">' +
+        '<strong>Direct Call:</strong> If you are able to assist, please call <strong>' + escapeHtml(contactPhone) + '</strong> immediately.' +
+      '</div>' +
+    '</div>' +
+    '<div class="footer">' +
+      'BloodMatch Emergency Transfusion Network • Rapid Mobilization<br>' +
+      'Autonomous Clinical Coordination Node' +
+    '</div>';
+
+  return {
+    subject: subject,
+    textBody: textBody,
+    htmlBody: wrapHtmlFrame(htmlContent, "Emergency Blood Alert")
+  };
+}
+
+/**
+ * 12. Emergency Donor Dispatch Confirmation (Clinician Receipt)
+ */
+function buildEmergencyDonorDispatchConfirmationEmail(name, payload) {
+  var donorName = payload.donor_name || "Voluntary Donor";
+  var donorEmail = payload.donor_email || "";
+  var patientName = payload.patient_name || "Emergency Patient";
+  var bloodType = payload.recipient_blood_type || payload.blood_type || "RBC";
+  var subject = payload.subject || ("Alert Dispatched: Emergency Notice Sent to " + donorName);
+
+  var textBody =
+    "BloodMatch Emergency Transfusion Network\n" +
+    "Emergency Alert Dispatch Confirmation\n\n" +
+    "Dear " + name + ",\n\n" +
+    "An urgent transfusion alert has been successfully transmitted to voluntary lifesaver " + donorName + " (" + donorEmail + ") for patient " + patientName + " (" + bloodType + ").\n\n" +
+    "BloodMatch Emergency Transfusion Network • Coordination Node";
+
+  var htmlContent =
+    '<div class="header"><span class="brand-pill" style="color: #065F46; background: #ECFDF5; border-color: #A7F3D0;">✓ Dispatch Confirmed</span></div>' +
+    '<div class="content">' +
+      '<h1 class="title">Emergency Alert Transmitted</h1>' +
+      '<div class="greeting">Dear ' + escapeHtml(name) + ',</div>' +
+      '<p class="paragraph">An emergency transfusion mobilization alert has been successfully dispatched to voluntary lifesaver <strong>' + escapeHtml(donorName) + '</strong>.</p>' +
+      '<div class="notice-box" style="background: #F0FDF4; border-color: #10B981; color: #166534;">' +
+        '<strong>Recipient:</strong> ' + escapeHtml(donorName) + ' (' + escapeHtml(donorEmail) + ')<br>' +
+        '<strong>Patient / Case:</strong> ' + escapeHtml(patientName) + ' (Group ' + escapeHtml(bloodType) + ')' +
+      '</div>' +
+    '</div>' +
+    '<div class="footer">' +
+      'BloodMatch Emergency Transfusion Network • Dispatch Receipt' +
+    '</div>';
+
+  return {
+    subject: subject,
+    textBody: textBody,
+    htmlBody: wrapHtmlFrame(htmlContent, "Alert Dispatch Confirmed")
+  };
+}
+
+/**
+ * 13. Live Tracking Match Alert
+ */
+function buildLiveTrackingMatchAlertEmail(name, payload) {
+  var donorName = payload.donor_name || "Compatible Voluntary Donor";
+  var donorGroup = payload.donor_blood_type || "Compatible";
+  var patientName = payload.patient_name || "Emergency Patient";
+  var patientGroup = payload.recipient_blood_type || payload.blood_type || "Patient";
+  var location = payload.location || payload.city || "your area";
+  var distanceKm = payload.distance_km != null ? payload.distance_km : 0;
+  var subject = payload.subject || ("⚡ Live Match Alert: Compatible Donor " + donorName + " (" + donorGroup + ") Enrolled");
+
+  var textBody =
+    "BloodMatch Emergency Transfusion Network\n" +
+    "Live Proximity Match Alert\n\n" +
+    "Dear " + name + ",\n\n" +
+    "A compatible voluntary blood donor has just registered or mobilized near your emergency request location.\n\n" +
+    "Matched Donor: " + donorName + " (Group " + donorGroup + ")\n" +
+    "Patient / Case: " + patientName + " (Group " + patientGroup + ")\n" +
+    "Proximity: " + distanceKm + " km (" + location + ")\n\n" +
+    "Access your BloodMatch triage dashboard to view details and contact this lifesaver.\n\n" +
+    "BloodMatch Emergency Transfusion Network";
+
+  var htmlContent =
+    '<div class="header"><span class="brand-pill" style="color: #7A0C17; background: #FFF0F1; border-color: #FFD4D7;">⚡ Live Proximity Match</span></div>' +
+    '<div class="content">' +
+      '<h1 class="title">Compatible Donor Detected</h1>' +
+      '<div class="greeting">Dear ' + escapeHtml(name) + ',</div>' +
+      '<p class="paragraph">A compatible voluntary lifesaver has just registered in proximity to your emergency request for <strong>' + escapeHtml(patientName) + '</strong>.</p>' +
+      '<div class="audit-card">' +
+        '<div class="audit-title" style="color: #D72638; margin-bottom: 12px;">Live Match Overview</div>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Matched Lifesaver</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(donorName) + ' (Group ' + escapeHtml(donorGroup) + ')</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Recipient Case</td>' +
+            '<td style="padding: 8px 0; border-bottom: 1px solid #F0EAE7; font-size: 12px; color: #1A1D20; font-weight: 700; text-align: right;">' + escapeHtml(patientName) + ' (Group ' + escapeHtml(patientGroup) + ')</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #75808A; font-weight: 500; text-align: left;">Proximity Distance</td>' +
+            '<td style="padding: 8px 0; font-size: 12px; color: #065F46; font-weight: 700; text-align: right;">~' + escapeHtml(distanceKm) + ' km (' + escapeHtml(location) + ')</td>' +
+          '</tr>' +
+        '</table>' +
+      '</div>' +
+      '<div class="notice-box" style="background: #FDF9F8; border-color: #D72638; color: #1A1D20;">' +
+        '<strong>Triage Action:</strong> Open your BloodMatch Emergency Requests dashboard to review contact information and mobilize donation.' +
+      '</div>' +
+    '</div>' +
+    '<div class="footer">' +
+      'BloodMatch Emergency Transfusion Network • Proximity Radar Alert' +
+    '</div>';
+
+  return {
+    subject: subject,
+    textBody: textBody,
+    htmlBody: wrapHtmlFrame(htmlContent, "Live Donor Match Alert")
+  };
+}
+
+/**
+ * 14. Clinician Donor Roster & Docket Notification
+ */
+function buildClinicianDonorRosterEmail(name, payload) {
+  var patientName = payload.patient_name || "Emergency Patient";
+  var bloodType = payload.recipient_blood_type || payload.blood_type || "RBC";
+  var donorCount = payload.donor_count || 1;
+  var subject = payload.subject || ("Ranked Voluntary Donor Roster: " + patientName + " (" + bloodType + ")");
+
+  var textBody =
+    "BloodMatch Emergency Transfusion Network\n" +
+    "Ranked Voluntary Donor Roster & Emergency PDF Docket\n\n" +
+    "Dear " + name + ",\n\n" +
+    "The ranked proximity donor roster for patient " + patientName + " (" + bloodType + ") is attached to this transmission with " + donorCount + " matched donor(s).\n\n" +
+    "BloodMatch Emergency Transfusion Network";
+
+  var htmlContent =
+    '<div class="header"><span class="brand-pill">Ranked Donor Roster</span></div>' +
+    '<div class="content">' +
+      '<h1 class="title">Emergency Transfusion Docket</h1>' +
+      '<div class="greeting">Dear ' + escapeHtml(name) + ',</div>' +
+      '<p class="paragraph">The ranked voluntary donor roster for patient <strong>' + escapeHtml(patientName) + '</strong> (Group ' + escapeHtml(bloodType) + ') has been generated and attached as an official clinical PDF docket.</p>' +
+      '<div class="notice-box" style="background: #F0FDF4; border-color: #10B981; color: #166534;">' +
+        '<strong>PDF Attachment Included:</strong> View the attached PDF document for complete donor contact numbers and geospatial rankings.' +
+      '</div>' +
+    '</div>' +
+    '<div class="footer">' +
+      'BloodMatch Emergency Transfusion Network • Clinical Dispatch Node' +
+    '</div>';
+
+  return {
+    subject: subject,
+    textBody: textBody,
+    htmlBody: wrapHtmlFrame(htmlContent, "Emergency Transfusion Docket")
   };
 }
 
