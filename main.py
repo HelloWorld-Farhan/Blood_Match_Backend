@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 from database import init_db, get_db, is_sqlite_fallback
 from models import (
+    strip_honorific,
     UserModel,
     OtpTokenModel,
     PasswordHistoryModel,
@@ -3180,12 +3181,14 @@ def create_emergency_request(
     db: Session = Depends(get_db)
 ):
     email_clean = payload.user_email.strip().lower() if payload.user_email else None
+    clean_patient = strip_honorific(payload.patient_name) or payload.patient_name
+    clean_contact = strip_honorific(payload.contact_person) or payload.contact_person
     
     # If client passed an ID (e.g. REQ-xxxxxx), check if it already exists
     if payload.id:
         existing = db.query(EmergencyRequestModel).filter(EmergencyRequestModel.id == payload.id).first()
         if existing:
-            existing.patient_name = payload.patient_name
+            existing.patient_name = clean_patient
             existing.patient_age = payload.patient_age or existing.patient_age
             existing.hospital = payload.hospital or existing.hospital
             existing.hospital_city = payload.hospital_city or existing.hospital_city
@@ -3194,7 +3197,7 @@ def create_emergency_request(
             existing.units_needed = payload.units_needed
             existing.urgency = payload.urgency or existing.urgency
             existing.status = payload.status or existing.status
-            existing.contact_person = payload.contact_person
+            existing.contact_person = clean_contact
             existing.contact_phone = payload.contact_phone
             db.commit()
             if email_clean:
@@ -3204,7 +3207,7 @@ def create_emergency_request(
     req = EmergencyRequestModel(
         id=payload.id if payload.id else generate_uuid(),
         user_email=email_clean,
-        patient_name=payload.patient_name,
+        patient_name=clean_patient,
         patient_age=payload.patient_age or 35,
         hospital=payload.hospital or "Emergency Trauma Network",
         hospital_city=payload.hospital_city,
@@ -3213,7 +3216,7 @@ def create_emergency_request(
         units_needed=payload.units_needed,
         urgency=payload.urgency or "CRITICAL",
         status=payload.status or "urgent",
-        contact_person=payload.contact_person,
+        contact_person=clean_contact,
         contact_phone=payload.contact_phone
     )
     db.add(req)
